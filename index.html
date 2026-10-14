@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compliance Ledger</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<div id="app"></div>
+<dialog id="dlg" class="rounded-2xl p-0 w-[min(92vw,34rem)] shadow-2xl"><div id="dlgBody" class="p-6"></div></dialog>
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 hidden rounded-full bg-slate-900 text-white text-sm px-4 py-2 shadow-lg"></div>
+
+<script>
+// ---- CONFIG: paste your Supabase project values -------------------------------
+const CFG = {
+  url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
+  key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S',                    // anon public key
+  portalUrl: './portal.html'  // where the supplier portal page will live
+};
+// -------------------------------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '-';
+const toast = (m) => { const t=$('#toast'); t.textContent=m; t.classList.remove('hidden'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.add('hidden'),3500); };
+let sb, user, profile, view = 'today';
+
+const badge = (text, tone) => `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${({red:'bg-red-100 text-red-700',amber:'bg-amber-100 text-amber-800',green:'bg-emerald-100 text-emerald-700',gray:'bg-slate-100 text-slate-600'})[tone]}">${esc(text)}</span>`;
+const btn = (label, a, data = {}, tone = 'primary') => `<button data-a="${a}" ${Object.entries(data).map(([k,v])=>`data-${k}="${esc(v)}"`).join(' ')} class="rounded-lg px-3 py-1.5 text-sm font-medium ${({primary:'bg-slate-900 text-white hover:bg-slate-700',ghost:'border border-slate-300 hover:bg-slate-100',danger:'bg-red-600 text-white hover:bg-red-500'})[tone]}">${esc(label)}</button>`;
+
+// ---- dialogs -----------------------------------------------------------------
+function modal(html) { $('#dlgBody').innerHTML = html; if (!$('#dlg').open) $('#dlg').showModal(); }
+const closeModal = () => $('#dlg').close();
+function askNote(title, required) {
+  return new Promise((resolve) => {
+    modal(`<h3 class="text-lg font-semibold">${esc(title)}</h3>
+      <textarea id="note" rows="4" class="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="${required ? 'A reason is required' : 'Optional note'}"></textarea>
+      <p id="noteErr" class="text-xs text-red-600 mt-1 h-4"></p>
+      <div class="mt-3 flex justify-end gap-2">${btn('Cancel','mCancel',{},'ghost')}${btn('Confirm','mOk')}</div>`);
+    askNote.ok = () => { const v = $('#note').value.trim(); if (required && !v) { $('#noteErr').textContent = 'Please write a reason.'; return; } closeModal(); resolve(v); };
+    askNote.cancel = () => { closeModal(); resolve(null); };
+  });
+}
+
+// ---- shell -------------------------------------------------------------------
+function shell(inner) {
+  const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
+  $('#app').innerHTML = `
+  <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+    <div class="font-semibold tracking-tight mr-4">Compliance Ledger</div>
+    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('review','Review')}</nav>
+    <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
+  </div></header>
+  <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
+}
+const loading = () => shell('<p class="text-slate-500">Loading…</p>');
+const fail = (e) => shell(`<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc(e.message || e)}</div>`);
+
+// ---- views -------------------------------------------------------------------
+const ORDER = { high: 0, medium: 1, low: 2 };
+const TONE = { high: 'red', medium: 'amber', low: 'gray' };
+const ROUTE = { documents: 'review', ownership_submissions: 'review', parties: 'suppliers', requests: 'suppliers' };
+
+async function renderToday() {
+  loading();
+  const { data, error } = await sb.from('v_open_work').select('*');
+  if (error) return fail(error);
+  data.sort((a, b) => ORDER[a.severity] - ORDER[b.severity] || (a.due_on || '9').localeCompare(b.due_on || '9'));
+  const n = (s) => data.filter((x) => x.severity === s).length;
+  const card = (label, v, tone) => `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="text-sm text-slate-500">${label}</div><div class="text-3xl font-semibold mt-1 ${tone}">${v}</div></div>`;
+  shell(`
+    <div class="grid grid-cols-3 gap-3 mb-6">${card('Needs action now', n('high'), 'text-red-600')}${card('Coming up', n('medium'), 'text-amber-600')}${card('Low priority', n('low'), 'text-slate-600')}</div>
+    <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">
+    ${data.length ? data.map((w) => `
+      <div class="p-4 flex items-start gap-3">
+        <div class="pt-0.5">${badge(w.severity, TONE[w.severity])}</div>
+        <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
+        ${ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
+      </div>`).join('') : '<p class="p-8 text-center text-slate-500">Nothing needs attention. Nice.</p>'}
+    </div>`);
+}
+
+async function renderSuppliers() {
+  loading();
+  const { data, error } = await sb.from('v_supplier_status').select('*').order('name');
+  if (error) return fail(error);
+  const cmrt = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
+  shell(`<h2 class="text-xl font-semibold mb-4">Suppliers</h2>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
+    <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th><th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${data.map((s) => `<tr>
+      <td class="p-3 font-medium">${esc(s.name)}<div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
+      <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
+      <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
+      <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
+      <td class="p-3 text-right">${btn('Send upload link', 'link', { id: s.party_id, name: s.name }, 'ghost')}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="7">No suppliers yet.</td></tr>'}
+    </tbody></table></div>`);
+}
+
+async function renderReview() {
+  loading();
+  const [docs, own] = await Promise.all([
+    sb.from('documents').select('id,title,doc_type,issued_on,file_name,storage_path,sha256,created_at,party:parties(name)').eq('status', 'received').order('created_at'),
+    sb.from('ownership_submissions').select('*, party:parties(name)').eq('status', 'pending_review').order('certified_at')
+  ]);
+  if (docs.error || own.error) return fail(docs.error || own.error);
+  const empty = (t) => `<p class="p-6 text-center text-slate-500">${t}</p>`;
+  shell(`
+  <h2 class="text-xl font-semibold mb-3">Documents to review</h2>
+  <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-8">
+  ${docs.data.map((d) => `<div class="p-4"><div class="flex flex-wrap items-center gap-3">
+      <div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div>
+      <div class="text-sm text-slate-500">${esc(d.party?.name || '')} · ${esc(d.doc_type)} · uploaded ${fmt(d.created_at)}</div>
+      <div class="text-xs text-slate-400 font-mono truncate">SHA-256 ${esc(d.sha256.slice(0, 16))}…</div></div>
+      <div class="flex flex-wrap gap-2">${btn('View file', 'file', { path: d.storage_path }, 'ghost')}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
+    </div></div>`).join('') || empty('No documents waiting for review.')}
+  </div>
+  <h2 class="text-xl font-semibold mb-3">Ownership submissions</h2>
+  <div class="space-y-4">
+  ${own.data.map((o) => `<div class="rounded-xl bg-white border border-slate-200 p-4">
+      <div class="flex flex-wrap items-start gap-3"><div class="flex-1"><div class="font-medium">${esc(o.party?.name)}</div>
+      <div class="text-sm text-slate-500">Certified by ${esc(o.certifier_name)}${o.certifier_title ? ', ' + esc(o.certifier_title) : ''} on ${fmt(o.certified_at)}</div></div>
+      <div class="flex gap-2">${btn('Accept & screen owners', 'own', { id: o.id, s: 'accept' })}${btn('Send back', 'own', { id: o.id, s: 'reject' }, 'danger')}</div></div>
+      ${o.none_above_threshold && !o.rows.length ? '<p class="mt-3 text-sm text-slate-600">Supplier states no owners at or above the threshold.</p>' : `
+      <table class="mt-3 w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">Name</th><th>Type</th><th>Country</th><th>Percent</th><th>Relationship</th></tr></thead>
+      <tbody>${o.rows.map((r) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(r.name)}</td><td>${esc(r.kind)}</td><td>${esc(r.country)}</td><td>${esc(r.percent)}%</td><td>${esc(r.relationship)}</td></tr>`).join('')}</tbody></table>`}
+    </div>`).join('') || `<div class="rounded-xl bg-white border border-slate-200">${empty('No ownership submissions waiting.')}</div>`}
+  </div>`);
+}
+
+// ---- actions -----------------------------------------------------------------
+const actions = {
+  nav: ({ v }) => { view = v; route(); },
+  signout: async () => { await sb.auth.signOut(); },
+  mOk: () => askNote.ok(), mCancel: () => askNote.cancel(),
+  close: () => closeModal(),
+  file: async ({ path }) => {
+    const { data, error } = await sb.storage.from('compliance-docs').createSignedUrl(path, 300);
+    error ? toast(error.message) : window.open(data.signedUrl, '_blank', 'noopener');
+  },
+  doc: async ({ id, s }) => {
+    const note = await askNote(s === 'accepted' ? 'Accept this document?' : s === 'rejected' ? 'Why is it being rejected?' : 'What gaps need follow-up?', s !== 'accepted');
+    if (note === null) return;
+    const { error } = await sb.from('documents').update({ status: s, review_notes: note || null }).eq('id', id);
+    if (error) return toast(error.message);
+    toast('Saved'); route();
+  },
+  own: async ({ id, s }) => {
+    const note = await askNote(s === 'accept' ? 'Accept this ownership statement' : 'Why is it being sent back?', true);
+    if (note === null) return;
+    const { data, error } = await sb.rpc(s === 'accept' ? 'accept_ownership_submission' : 'reject_ownership_submission', { p_id: id, p_notes: note });
+    if (error) return toast(error.message);
+    if (s === 'accept') {
+      let ok = 0, miss = 0;
+      for (const pid of (data || [])) { const r = await sb.rpc('screen_party', { p_party: pid }); r.error ? miss++ : ok++; }
+      toast(miss ? `Accepted. ${ok} owners screened, ${miss} could not be screened (are lists loaded?)` : `Accepted. ${ok} owners screened.`);
+    } else toast('Sent back');
+    route();
+  },
+  link: async ({ id, name }) => {
+    const { data: contacts, error } = await sb.from('party_contacts').select('id,name,email').eq('party_id', id).eq('is_active', true);
+    if (error) return toast(error.message);
+    if (!contacts.length) return modal(`<p>Add a contact for <b>${esc(name)}</b> first, so the link is tied to a named person.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    modal(`<h3 class="text-lg font-semibold">Upload link for ${esc(name)}</h3>
+      <label class="block mt-3 text-sm">Who is it for?<select id="lkC" class="mt-1 w-full rounded-lg border border-slate-300 p-2">${contacts.map((c) => `<option value="${c.id}">${esc(c.name)} (${esc(c.email || 'no email')})</option>`).join('')}</select></label>
+      <label class="block mt-3 text-sm">Valid for (days)<input id="lkD" type="number" min="1" max="180" value="30" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
+      <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create link', 'mkLink', { id, name })}</div>`);
+  },
+  mkLink: async ({ id }) => {
+    const { data, error } = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: id, p_contact: $('#lkC').value, p_days: +$('#lkD').value });
+    if (error) return toast(error.message);
+    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${data.token}`;
+    modal(`<h3 class="text-lg font-semibold">Link ready</h3>
+      <p class="text-sm text-slate-500 mt-1">Copy it now. For security it cannot be shown again. Expires ${fmt(data.expires_at)}.</p>
+      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
+      <div class="mt-4 flex justify-end gap-2">${btn('Copy', 'copy')}${btn('Done', 'close', {}, 'ghost')}</div>`);
+  },
+  copy: async () => { await navigator.clipboard.writeText($('#lkU').value); toast('Copied'); }
+};
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b && actions[b.dataset.a]) actions[b.dataset.a](b.dataset); });
+
+// ---- boot & auth ---------------------------------------------------------------
+function route() { ({ today: renderToday, suppliers: renderSuppliers, review: renderReview })[view](); }
+
+function loginScreen(msg = '') {
+  $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
+    <h1 class="text-2xl font-semibold tracking-tight">Compliance Ledger</h1><p class="text-sm text-slate-500 mt-1">Sign in with your work account.</p>
+    <input id="em" type="email" required autocomplete="username" placeholder="Email" class="mt-6 w-full rounded-lg border border-slate-300 p-2.5">
+    <input id="pw" type="password" required autocomplete="current-password" placeholder="Password" class="mt-3 w-full rounded-lg border border-slate-300 p-2.5">
+    <p class="text-sm text-red-600 mt-2 min-h-[1.25rem]">${esc(msg)}</p>
+    <button class="mt-2 w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium hover:bg-slate-700">Sign in</button></form></div>`;
+  $('#lf').onsubmit = async (e) => {
+    e.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value, password: $('#pw').value });
+    if (error) loginScreen(error.message);
+  };
+}
+
+async function afterAuth(session) {
+  if (!session) return loginScreen();
+  user = session.user;
+  const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  profile = data;
+  if (!profile || !profile.active) {
+    $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-sm text-center"><h1 class="text-xl font-semibold">Waiting for approval</h1><p class="text-slate-500 mt-2">Your account exists but an admin has not activated it yet.</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
+    return;
+  }
+  route();
+}
+
+if (!CFG.url || !CFG.key) {
+  $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-md rounded-2xl bg-white border border-slate-200 p-8"><h1 class="text-lg font-semibold">Almost there</h1><p class="text-sm text-slate-600 mt-2">Open this file and paste your Supabase URL and anon key into the <code>CFG</code> block at the top of the script.</p></div></div>`;
+} else {
+  sb = supabase.createClient(CFG.url, CFG.key, { db: { schema: 'compliance' } });
+  sb.auth.onAuthStateChange((_e, session) => setTimeout(() => afterAuth(session), 0));
+}
+</script>
+</body>
+</html>
