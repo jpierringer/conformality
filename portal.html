@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<title>Supplier Compliance Portal</title>
+<title>Conformality - Supplier Compliance Portal</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}</style>
@@ -54,7 +54,7 @@ function render() {
 
   ${card(`${h2('What we need from you')}
     ${open.length ? `<ul class="mt-3 divide-y divide-slate-100">${open.map((r) => `<li class="py-2.5"><div class="font-medium">${esc(r.subject)}</div>
-      <div class="text-sm text-slate-500">${esc(r.message || '')}${r.due_on ? ` Due ${fmt(r.due_on)}.` : ''}</div></li>`).join('')}</ul>`
+      <div class="text-sm text-slate-500 whitespace-pre-line">${esc(r.message || '')}${r.due_on ? ` Due ${fmt(r.due_on)}.` : ''}</div></li>`).join('')}</ul>`
       : '<p class="mt-3 text-sm text-slate-500">There are no open requests right now. You can still send us documents below.</p>'}`)}
 
   ${card(`${h2('Upload documents', 'Reports, declarations, certificates, datasheets. Up to 50 MB per file.')}
