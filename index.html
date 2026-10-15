@@ -481,7 +481,74 @@ async function printAuditReport() {
   } catch (e) { toast(e.message || 'Could not build the report'); }
 }
 
+// ---- corrected-CMRT request ------------------------------------------------------
+async function collectFindings(declId) {
+  const [dRes, sm, ref] = await Promise.all([
+    sb.from('cmrt_declarations').select('id,party_id,reporting_year,is_complete,completeness_notes,party:parties(name)').eq('id', declId).single(),
+    fetchAll((a, b) => sb.from('cmrt_smelters').select('metal,smelter_name,smelter_country,smelter_id,check_status').eq('declaration_id', declId).order('id').range(a, b)),
+    fetchAll((a, b) => sb.from('v_rmap_current').select('cid,metal').order('id').range(a, b))]);
+  if (dRes.error) throw dRes.error;
+  const key = (m, c) => String(m || '').toLowerCase() + '|' + String(c || '').trim().toUpperCase();
+  const refKeys = new Set(ref.map((r) => key(r.metal, r.cid))), declKeys = new Set(sm.filter((x) => x.smelter_id).map((x) => key(x.metal, x.smelter_id)));
+  const matched = [...declKeys].filter((k) => refKeys.has(k)).length;
+  return { d: dRes.data, issues: sm.filter((x) => FLAG.includes(x.check_status) || !x.check_status), pct: refKeys.size ? Math.round((100 * matched) / refKeys.size) : 0 };
+}
+function buildExceptions(f) {
+  const cap = (m) => (m ? m[0].toUpperCase() + m.slice(1) : ''), out = [], used = new Set();
+  const take = (fn) => f.issues.filter((x, i) => !used.has(i) && fn(x) && (used.add(i), true));
+  const ni = take((x) => !x.smelter_id && /not yet identified/i.test(x.smelter_name || ''));
+  if (ni.length) out.push(`Unidentified smelters for ${[...new Set(ni.map((x) => cap(x.metal)))].join(', ')}. Identify them and give their RMI smelter IDs, or give a dated plan to do so. If any smelter is still unidentified, the answer to the question on whether all smelters are identified should be No.`);
+  const nl = take((x) => !x.smelter_id && /not listed/i.test(x.smelter_name || ''));
+  if (nl.length) out.push(`Entries marked "Smelter not listed" with no usable name (${nl.map((x) => cap(x.metal) + (x.smelter_country ? ', ' + x.smelter_country : '')).join('; ')}). Give each smelter's full legal name, country and address.`);
+  take((x) => !x.smelter_id).forEach((x) => out.push(`${x.smelter_name || 'Unnamed smelter'} (${cap(x.metal)}) has no smelter ID. Give the RMI smelter ID, or the full name, country and address if it has none.`));
+  take((x) => x.check_status === 'not_listed').forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id}) is not on the current RMI smelter list. Confirm the ID is correct and whether you still source from this smelter.`));
+  take((x) => x.check_status === 'non_conformant').forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id}) is not conformant under RMAP. Confirm whether you still use it and your plan to stop or have it audited.`));
+  take(() => true).forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id || 'no ID'}) has an unrecognised status. Confirm its current status.`));
+  if (f.pct >= 80) out.push(`The smelter list covers about ${f.pct}% of the RMI reference list. List only the smelters actually in your supply chain for the products declared.`);
+  if (!f.d.is_complete) out.push(`Some declaration fields could not be read (${(f.d.completeness_notes || '').replace(/^Could not find: /, '').replace(/\. Please verify.*$/, '') || 'see the form'}). Make sure all mandatory fields are filled in.`);
+  return out;
+}
+async function requestCorrection(docId, note) {
+  const { data: d, error } = await sb.from('documents').select('id,title,party_id,created_at,party:parties(name)').eq('id', docId).single();
+  if (error) return toast(error.message);
+  const [c, x] = await Promise.all([sb.from('party_contacts').select('id,name,email').eq('party_id', d.party_id).eq('is_active', true), sb.from('cmrt_declarations').select('id').eq('document_id', docId).maybeSingle()]);
+  if (c.error) return toast(c.error.message);
+  if (!c.data.length) return modal(`<p class="text-sm">The decision was saved. To request a corrected CMRT, add a contact for <b>${esc(d.party?.name)}</b> first, then use Request documents on the Suppliers tab.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  let lines = [], year = new Date().getFullYear();
+  if (x.data) { try { const f = await collectFindings(x.data.id); lines = buildExceptions(f); year = f.d.reporting_year || year; } catch (e) { toast('Could not list the exceptions: ' + e.message); } }
+  const msg = `We reviewed the CMRT you submitted on ${fmt(d.created_at)} and need a corrected version.\n\n${note ? 'Reviewer note: ' + note + '\n\n' : ''}${lines.length ? 'Please resolve the following:\n' + lines.map((l, i) => `${i + 1}. ${l}`).join('\n') + '\n\n' : ''}Please resubmit using the current RMI CMRT template, completed and authorised by your declared authorizer.`;
+  const inpc = 'mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm';
+  actions.crx = { docId, lines: lines.length, partyId: d.party_id, partyName: d.party?.name, contacts: c.data };
+  modal(`<h3 class="text-lg font-semibold">Request a corrected CMRT from ${esc(d.party?.name)}</h3>
+    <p class="text-sm text-slate-500 mt-1">${lines.length ? lines.length + ' exceptions were listed from the review.' : 'No smelter exceptions were found, so only your note is included.'} The supplier will see this message on their upload page, so edit it as needed.</p>
+    <div class="grid sm:grid-cols-2 gap-3 mt-3"><label class="block text-sm">Send to<select id="crC" class="${inpc}">${c.data.map((q) => `<option value="${q.id}">${esc(q.name)} (${esc(q.email || 'no email')})</option>`).join('')}</select></label>
+    <label class="block text-sm">Due in (days)<input id="crD" type="number" min="1" max="165" value="30" class="${inpc}"></label></div>
+    <label class="block mt-3 text-sm">Subject<input id="crS" value="${esc(`Corrected ${year} CMRT needed`)}" class="${inpc}"></label>
+    <label class="block mt-3 text-sm">Message and exceptions<textarea id="crM" rows="14" class="${inpc}">${esc(msg)}</textarea></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-[1rem]"></p>
+    <div class="mt-2 flex justify-end gap-2">${btn('Skip', 'close', {}, 'ghost')}${btn('Create request & link', 'mkCorrection')}</div>`, true);
+}
+async function mkCorrection() {
+  const k = actions.crx, contact = k.contacts.find((q) => q.id === $('#crC').value), subject = $('#crS').value.trim(), msg = $('#crM').value.trim(), days = Math.min(165, Math.max(1, +$('#crD').value || 30));
+  if (!subject || !msg) return ($('#fErr').textContent = 'Subject and message are required.');
+  const due = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+  const r = await sb.from('requests').insert({ party_id: k.partyId, contact_id: contact.id, doc_type: 'cmrt', subject, message: msg, status: 'sent', due_on: due }).select('id').single();
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: k.partyId, p_contact: contact.id, p_request: r.data.id, p_days: days + 14, p_label: subject });
+  if (l.error) return ($('#fErr').textContent = 'The request was logged, but the link failed: ' + l.error.message);
+  const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`, first = (contact.name || '').split(' ')[0] || 'there', dueTxt = new Date(due).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+  const short = `Hello ${first},\n\nWe reviewed the CMRT you submitted and need a corrected version${k.lines ? ` (${k.lines} items to resolve)` : ''}. The full list and a private upload link are here, no account needed:\n${url}\n\nPlease send it by ${dueTxt}.\n\nThank you,\n${profile?.full_name || ''}`;
+  actions.crxFull = `Hello ${first},\n\n${msg}\n\nPlease upload it using this private link, no account needed:\n${url}\n\nPlease send it by ${dueTxt}.\n\nThank you,\n${profile?.full_name || ''}`;
+  modal(`<h3 class="text-lg font-semibold">Request created</h3>
+    <p class="text-sm text-slate-500 mt-1">It is logged as sent and due ${fmt(due)}. The exceptions appear on the supplier's upload page. The link is shown only now.</p>
+    <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
+    <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}${btn('Copy full email text', 'copyFull', {}, 'ghost')}<a href="mailto:${encodeURIComponent(contact.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(short)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
+  route();
+}
+
 const actions = {
+  mkCorrection: () => mkCorrection(),
+  copyFull: async () => { await navigator.clipboard.writeText(actions.crxFull || ''); toast('Email text copied'); },
   auditApply: () => { readFilters(); loadAuditList(); },
   auditCsv: () => { readFilters(); exportAuditCsv(); },
   auditPrint: () => { readFilters(); printAuditReport(); },
@@ -600,6 +667,10 @@ const actions = {
     const { error } = await sb.from('documents').update({ status: s, review_notes: note || null }).eq('id', id);
     if (error) return toast(error.message);
     toast('Saved'); route();
+    if (s === 'rejected' || s === 'accepted_with_gaps') {
+      const dd = await sb.from('documents').select('doc_type,file_name,title').eq('id', id).single();
+      if (!dd.error && isCmrt(dd.data)) requestCorrection(id, note);
+    }
   },
   own: async ({ id, s }) => {
     const note = await askNote(s === 'accept' ? 'Accept this ownership statement' : 'Why is it being sent back?', true);
