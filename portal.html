@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Supplier Compliance Portal</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}</style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<div id="app" class="max-w-3xl mx-auto px-4 py-8"></div>
+
+<script>
+// ---- CONFIG: same Supabase values as the internal app ------------------------
+const CFG = { url: 'https://sjwarllnehssyphoormc.supabase.co', key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S' };
+// -------------------------------------------------------------------------------
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '';
+const token = new URLSearchParams(location.search).get('token');
+const REASONS = {
+  invalid: 'This link is not valid. Please check that you copied the whole link, or ask your contact for a new one.',
+  expired: 'This link has expired. Please ask your contact for a new one.',
+  revoked: 'This link is no longer active. Please ask your contact for a new one.',
+  rate_limited: 'Too many attempts. Please wait a while and try again.',
+  file_empty_or_too_large: 'That file is empty or larger than 50 MB.',
+  too_many_uploads: 'Daily upload limit reached for this link. Please try again tomorrow.',
+  unknown_request: 'That request is not available for this link.',
+  upload_slot_invalid: 'The upload session expired. Please try again.',
+  bad_fingerprint: 'Could not verify the file. Please try again.',
+  document_type_not_allowed: 'That document type cannot be uploaded here.',
+  file_not_uploaded: 'The file did not finish uploading. Please try again.'
+};
+let sb, P, info, rows = [], results = [], doneRequests = new Set(), ownershipDone = null, busy = false;
+
+const card = (inner) => `<section class="rounded-2xl bg-white border border-slate-200 shadow-sm p-6 mb-6">${inner}</section>`;
+const h2 = (t, sub = '') => `<h2 class="text-lg font-semibold">${t}</h2>${sub ? `<p class="text-sm text-slate-500 mt-1">${sub}</p>` : ''}`;
+const inp = 'w-full rounded-lg border border-slate-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400';
+
+function errorScreen(reason) {
+  $('#app').innerHTML = card(`<div class="text-center py-6"><div class="mx-auto h-12 w-12 rounded-full bg-red-100 text-red-600 grid place-items-center text-xl font-bold">!</div>
+    <h1 class="mt-4 text-xl font-semibold">We could not open this page</h1><p class="mt-2 text-slate-600">${esc(REASONS[reason] || 'Something went wrong. Please try again later.')}</p></div>`);
+}
+
+// ---- page ----------------------------------------------------------------------
+function render() {
+  const open = info.requests.filter((r) => !doneRequests.has(r.id));
+  $('#app').innerHTML = `
+  <div class="mb-6"><div class="text-sm text-slate-500">${esc(info.issuer)}</div>
+    <h1 class="text-2xl font-semibold tracking-tight">Hello ${esc(info.contact.name || '')}</h1>
+    <p class="text-slate-600">Supplier compliance portal for <b>${esc(info.party.name)}</b>. This private link expires ${fmt(info.expires_at)}.</p></div>
+
+  ${card(`${h2('What we need from you')}
+    ${open.length ? `<ul class="mt-3 divide-y divide-slate-100">${open.map((r) => `<li class="py-2.5"><div class="font-medium">${esc(r.subject)}</div>
+      <div class="text-sm text-slate-500">${esc(r.message || '')}${r.due_on ? ` Due ${fmt(r.due_on)}.` : ''}</div></li>`).join('')}</ul>`
+      : '<p class="mt-3 text-sm text-slate-500">There are no open requests right now. You can still send us documents below.</p>'}`)}
+
+  ${card(`${h2('Upload documents', 'Reports, declarations, certificates, datasheets. Up to 50 MB per file.')}
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Related request<select id="upReq" data-change="reqPick" class="${inp} mt-1"><option value="">General upload</option>${open.map((r) => `<option value="${r.id}" data-dt="${esc(r.doc_type || '')}">${esc(r.subject)}</option>`).join('')}</select></label>
+      <label class="text-sm">Document type<select id="upType" class="${inp} mt-1">${info.doc_types.map((d) => `<option value="${esc(d.code)}">${esc(d.name)}</option>`).join('')}</select></label>
+      <label class="text-sm">Date on document (optional)<input id="upDate" type="date" class="${inp} mt-1"></label>
+      <label class="text-sm">Note (optional)<input id="upNote" maxlength="300" class="${inp} mt-1"></label>
+    </div>
+    <label id="drop" class="mt-4 block rounded-xl border-2 border-dashed border-slate-300 p-8 text-center cursor-pointer hover:bg-slate-50">
+      <div class="font-medium">Drag files here or click to choose</div><div class="text-xs text-slate-500 mt-1">PDF, Excel, Word, CSV or images</div>
+      <input id="files" type="file" multiple class="hidden"></label>
+    <ul id="uploads" class="mt-3 space-y-1.5 text-sm">${results.map((r) => `<li class="flex gap-2 ${r.ok ? 'text-emerald-700' : r.ok === false ? 'text-red-600' : 'text-slate-500'}"><span>${r.ok ? '✓' : r.ok === false ? '✕' : '…'}</span><span class="truncate">${esc(r.name)}</span><span class="ml-auto shrink-0">${esc(r.msg)}</span></li>`).join('')}</ul>`)}
+
+  ${ownershipDone ? card(`${h2('Ownership statement')}<p class="mt-3 text-emerald-700 text-sm">✓ Thank you. Your ownership statement was received on ${fmt(ownershipDone)} and is awaiting review.</p>`) : card(`
+    ${h2('Ownership and parent companies', `Please list every parent company and every owner holding ${esc(info.config.ownership_min_percent)}% or more, direct or indirect. This helps us meet sanctions and export-control requirements.`)}
+    ${info.last_ownership ? `<p class="mt-2 text-xs text-slate-500">Last statement: ${esc(info.last_ownership.status.replace('_', ' '))}, ${fmt(info.last_ownership.submitted_at)}.</p>` : ''}
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Legal company name<input id="owName" value="${esc(info.party.name)}" class="${inp} mt-1"></label>
+      <label class="text-sm">Country (2-letter code)<input id="owCountry" maxlength="2" value="${esc(info.party.country || '')}" class="${inp} mt-1 uppercase"></label>
+    </div>
+    <div class="mt-4 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="pb-1 pr-2">Owner or parent name</th><th class="pb-1 pr-2">Type</th><th class="pb-1 pr-2 w-20">Country</th><th class="pb-1 pr-2 w-20">Owns %</th><th class="pb-1 pr-2">Relationship</th><th></th></tr></thead>
+    <tbody id="rowsBody">${rows.map((r, i) => rowHtml(r, i)).join('')}</tbody></table></div>
+    <div class="mt-2 flex flex-wrap gap-2 items-center"><button data-a="addRow" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">+ Add row</button>
+      <label class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer">Import CSV<input id="csv" type="file" accept=".csv" class="hidden"></label>
+      <span class="text-xs text-slate-400">CSV columns: name, type, country, percent, relationship</span></div>
+    <label class="mt-4 flex gap-2 text-sm"><input id="owNone" type="checkbox" class="mt-0.5"> <span>No individual or entity owns ${esc(info.config.ownership_min_percent)}% or more of our company, and we have no parent company.</span></label>
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Your name<input id="cfName" value="${esc(info.contact.name || '')}" class="${inp} mt-1"></label>
+      <label class="text-sm">Your title<input id="cfTitle" value="${esc(info.contact.job_title || '')}" class="${inp} mt-1"></label></div>
+    <div class="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">${esc(info.config.certification_text)}</div>
+    <label class="mt-3 flex gap-2 text-sm"><input id="cfOk" type="checkbox" class="mt-0.5"> <span>I agree to the statement above.</span></label>
+    <ul id="owErr" class="mt-3 text-sm text-red-600 list-disc pl-5"></ul>
+    <button data-a="submitOwn" class="mt-4 rounded-lg bg-slate-900 text-white px-5 py-2.5 font-medium hover:bg-slate-700">Certify &amp; submit</button>`)}
+  <p class="text-xs text-slate-400 text-center">Your visit and submissions are recorded for compliance purposes.</p>`;
+  wireUpload();
+}
+
+const rowHtml = (r, i) => `<tr data-i="${i}">
+  <td class="pr-2 pb-1.5"><input data-f="name" value="${esc(r.name)}" class="${inp}"></td>
+  <td class="pr-2 pb-1.5"><select data-f="kind" class="${inp}"><option value="entity" ${r.kind === 'entity' ? 'selected' : ''}>Company</option><option value="individual" ${r.kind === 'individual' ? 'selected' : ''}>Individual</option></select></td>
+  <td class="pr-2 pb-1.5"><input data-f="country" maxlength="2" value="${esc(r.country)}" class="${inp} uppercase"></td>
+  <td class="pr-2 pb-1.5"><input data-f="percent" value="${esc(r.percent)}" class="${inp}"></td>
+  <td class="pr-2 pb-1.5"><select data-f="relationship" class="${inp}">${['owner', 'parent', 'ultimate_owner'].map((v) => `<option value="${v}" ${r.relationship === v ? 'selected' : ''}>${v.replace('_', ' ')}</option>`).join('')}</select></td>
+  <td class="pb-1.5"><button data-a="delRow" data-i="${i}" class="text-slate-400 hover:text-red-600 px-2" title="Remove">✕</button></td></tr>`;
+const blank = () => ({ name: '', kind: 'entity', country: '', percent: '', relationship: 'owner' });
+
+function syncRows() {
+  document.querySelectorAll('#rowsBody tr').forEach((tr) => {
+    const r = rows[+tr.dataset.i]; if (!r) return;
+    tr.querySelectorAll('[data-f]').forEach((el) => { r[el.dataset.f] = el.value; });
+  });
+}
+
+// ---- upload ----------------------------------------------------------------------
+function wireUpload() {
+  const drop = $('#drop'), files = $('#files');
+  if (!drop) return;
+  files.onchange = () => handleFiles([...files.files]);
+  ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('bg-slate-100'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('bg-slate-100'); }));
+  drop.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
+  const csv = $('#csv'); if (csv) csv.onchange = () => importCsv(csv.files[0]);
+}
+
+async function sha256(file) {
+  const h = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, '0')).join('');
+}
+
+async function handleFiles(list) {
+  if (busy || !list.length) return;
+  busy = true;
+  const reqId = $('#upReq').value || null, type = $('#upType').value, date = $('#upDate').value || null, note = $('#upNote').value;
+  for (const f of list) {
+    const row = { name: f.name, ok: null, msg: 'Uploading…' }; results.unshift(row); refreshList();
+    try {
+      const prep = await P.rpc('supplier_prepare_upload', { p_token: token, p_file_name: f.name, p_size_bytes: f.size, p_request_id: reqId });
+      if (prep.error || !prep.data?.ok) throw new Error(REASONS[prep.data?.reason] || prep.error?.message || 'Could not start upload');
+      const up = await sb.storage.from('compliance-docs').upload(prep.data.path, f, { upsert: false, contentType: f.type || 'application/octet-stream' });
+      if (up.error) throw new Error('Upload failed. Please try again.');
+      const hash = await sha256(f);
+      const sub = await P.rpc('supplier_submit_document', { p_token: token, p_slot_id: prep.data.slot_id, p_doc_type: type, p_title: f.name, p_sha256: hash, p_issued_on: date, p_reporting_year: null, p_notes: note || null });
+      if (sub.error || !sub.data?.ok) throw new Error(REASONS[sub.data?.reason] || sub.error?.message || 'Could not record the file');
+      row.ok = true; row.msg = 'Received';
+      if (reqId) doneRequests.add(reqId);
+    } catch (e) { row.ok = false; row.msg = e.message; }
+    refreshList();
+  }
+  busy = false;
+  if (reqId && doneRequests.has(reqId)) { const keep = [...results]; render(); results = keep; refreshList(); }
+}
+function refreshList() {
+  const ul = $('#uploads'); if (!ul) return;
+  ul.innerHTML = results.map((r) => `<li class="flex gap-2 ${r.ok ? 'text-emerald-700' : r.ok === false ? 'text-red-600' : 'text-slate-500'}"><span>${r.ok ? '✓' : r.ok === false ? '✕' : '…'}</span><span class="truncate">${esc(r.name)}</span><span class="ml-auto shrink-0">${esc(r.msg)}</span></li>`).join('');
+}
+
+// ---- ownership -------------------------------------------------------------------
+function splitCsv(line) {
+  const out = []; let cur = '', q = false;
+  for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; }
+  out.push(cur.trim()); return out;
+}
+async function importCsv(file) {
+  if (!file) return;
+  const lines = (await file.text()).split(/\r?\n/).filter((l) => l.trim());
+  if (!lines.length) return;
+  let head = splitCsv(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z]/g, ''));
+  const hasHead = head.includes('name') || head.includes('ownername');
+  if (!hasHead) head = ['name', 'type', 'country', 'percent', 'relationship'];
+  const col = (...keys) => head.findIndex((h) => keys.includes(h));
+  const ix = { name: col('name', 'ownername', 'company'), kind: col('type', 'kind'), country: col('country', 'countrycode'), percent: col('percent', 'ownership', 'owns'), rel: col('relationship', 'role') };
+  syncRows(); rows = rows.filter((r) => r.name || r.percent || r.country);
+  for (const l of lines.slice(hasHead ? 1 : 0)) {
+    const c = splitCsv(l); const g = (i) => (i >= 0 ? c[i] || '' : '');
+    const kind = g(ix.kind).toLowerCase().startsWith('ind') || g(ix.kind).toLowerCase() === 'person' ? 'individual' : 'entity';
+    const rel = g(ix.rel).toLowerCase().replace(/\s+/g, '_');
+    rows.push({ name: g(ix.name), kind, country: g(ix.country).toUpperCase(), percent: g(ix.percent).replace('%', ''), relationship: ['owner', 'parent', 'ultimate_owner'].includes(rel) ? rel : 'owner' });
+  }
+  const keep = { n: $('#owName').value, c: $('#owCountry').value, none: $('#owNone').checked, a: $('#cfName').value, t: $('#cfTitle').value };
+  render(); $('#owName').value = keep.n; $('#owCountry').value = keep.c; $('#owNone').checked = keep.none; $('#cfName').value = keep.a; $('#cfTitle').value = keep.t;
+}
+
+async function submitOwnership() {
+  syncRows();
+  const none = $('#owNone').checked;
+  const clean = rows.filter((r) => r.name.trim() || r.percent.toString().trim() || r.country.trim());
+  const errs = [];
+  clean.forEach((r, i) => {
+    if (!r.name.trim()) errs.push(`Row ${i + 1}: enter a name`);
+    if (!/^[A-Za-z]{2}$/.test(r.country.trim())) errs.push(`Row ${i + 1}: use a 2-letter country code (for example DE)`);
+    const p = parseFloat(String(r.percent).replace('%', ''));
+    if (!(p > 0 && p <= 100)) errs.push(`Row ${i + 1}: ownership percent must be between 0 and 100`);
+  });
+  if (!clean.length && !none) errs.push('Add at least one owner or parent, or tick the box saying there are none.');
+  if (clean.length && none) errs.push('You listed owners but also ticked "none". Please fix one of them.');
+  if (!$('#cfName').value.trim()) errs.push('Enter your name to certify.');
+  if (!$('#cfOk').checked) errs.push('Please agree to the statement.');
+  const ul = $('#owErr'); ul.innerHTML = errs.map((e) => `<li>${esc(e)}</li>`).join('');
+  if (errs.length) return;
+  const payload = {
+    entity_legal_name: $('#owName').value.trim(), entity_country: $('#owCountry').value.trim().toUpperCase(),
+    none_above_threshold: none, accepted_certification: true,
+    certifier_name: $('#cfName').value.trim(), certifier_title: $('#cfTitle').value.trim(),
+    rows: clean.map((r) => ({ name: r.name.trim(), kind: r.kind, country: r.country.trim().toUpperCase(), percent: String(parseFloat(String(r.percent).replace('%', ''))), relationship: r.relationship }))
+  };
+  const { data, error } = await P.rpc('supplier_submit_ownership', { p_token: token, p_payload: payload });
+  if (error || !data?.ok) { ul.innerHTML = (data?.errors || [REASONS[data?.reason] || error?.message || 'Could not submit']).map((e) => `<li>${esc(e)}</li>`).join(''); return; }
+  ownershipDone = new Date().toISOString(); render();
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  if (b.dataset.a === 'addRow') { syncRows(); rows.push(blank()); keepRender(); }
+  if (b.dataset.a === 'delRow') { syncRows(); rows.splice(+b.dataset.i, 1); keepRender(); }
+  if (b.dataset.a === 'submitOwn') submitOwnership();
+});
+function keepRender() {
+  const v = ['owName', 'owCountry', 'cfName', 'cfTitle'].map((id) => $('#' + id).value), none = $('#owNone').checked, ok = $('#cfOk').checked;
+  render();
+  ['owName', 'owCountry', 'cfName', 'cfTitle'].forEach((id, i) => { $('#' + id).value = v[i]; }); $('#owNone').checked = none; $('#cfOk').checked = ok;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'upReq') { const dt = e.target.selectedOptions[0]?.dataset.dt; if (dt && [...$('#upType').options].some((o) => o.value === dt)) $('#upType').value = dt; }
+});
+
+// ---- boot --------------------------------------------------------------------------
+(async function () {
+  if (!CFG.url || !CFG.key) { $('#app').innerHTML = card('<p class="text-sm text-slate-600">Paste your Supabase URL and anon key into the <code>CFG</code> block at the top of this file.</p>'); return; }
+  if (!token) return errorScreen('invalid');
+  sb = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  P = sb.schema('compliance_portal');
+  const { data, error } = await P.rpc('supplier_open', { p_token: token });
+  if (error) return errorScreen('');
+  if (!data.ok) return errorScreen(data.reason);
+  info = data; rows = [blank(), blank()]; render();
+})();
+</script>
+</body>
+</html>
