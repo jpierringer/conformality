@@ -3,879 +3,235 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conformality</title>
+<meta name="robots" content="noindex,nofollow">
+<title>Supplier Compliance Portal</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#printArea{display:none}
-@page{margin:14mm}
-@media print{body{background:#fff}#app,#toast,dialog{display:none!important}#printArea{display:block!important;color:#111;font-size:10pt}
-#printArea table{width:100%;border-collapse:collapse;font-size:8pt}#printArea th,#printArea td{border-bottom:1px solid #ddd;padding:3px 4px;text-align:left;vertical-align:top}
-#printArea thead{display:table-header-group}#printArea tr{page-break-inside:avoid}#printArea h1{font-size:18pt;margin:0}#printArea h2{font-size:12pt;margin:14px 0 4px}.mono{font-family:ui-monospace,monospace}}</style>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}</style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
-<div id="app"></div>
-<dialog id="dlg" class="rounded-2xl p-0 w-[min(92vw,34rem)] shadow-2xl"><div id="dlgBody" class="p-6"></div></dialog>
-<div id="printArea"></div>
-<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 hidden rounded-full bg-slate-900 text-white text-sm px-4 py-2 shadow-lg"></div>
+<div id="app" class="max-w-3xl mx-auto px-4 py-8"></div>
 
 <script>
-// ---- CONFIG: paste your Supabase project values -------------------------------
-const CFG = {
-  url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
-  key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S',                    // anon public key
-  portalUrl: './portal.html'  // where the supplier portal page will live
-};
+// ---- CONFIG: same Supabase values as the internal app ------------------------
+const CFG = { url: 'https://sjwarllnehssyphoormc.supabase.co', key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S' };
 // -------------------------------------------------------------------------------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '-';
-const toast = (m) => { const t=$('#toast'); t.textContent=m; t.classList.remove('hidden'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.add('hidden'),3500); };
-let sb, user, profile, view = 'today';
+const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '';
+const token = new URLSearchParams(location.search).get('token');
+const REASONS = {
+  invalid: 'This link is not valid. Please check that you copied the whole link, or ask your contact for a new one.',
+  expired: 'This link has expired. Please ask your contact for a new one.',
+  revoked: 'This link is no longer active. Please ask your contact for a new one.',
+  rate_limited: 'Too many attempts. Please wait a while and try again.',
+  file_empty_or_too_large: 'That file is empty or larger than 50 MB.',
+  too_many_uploads: 'Daily upload limit reached for this link. Please try again tomorrow.',
+  unknown_request: 'That request is not available for this link.',
+  upload_slot_invalid: 'The upload session expired. Please try again.',
+  bad_fingerprint: 'Could not verify the file. Please try again.',
+  document_type_not_allowed: 'That document type cannot be uploaded here.',
+  file_not_uploaded: 'The file did not finish uploading. Please try again.'
+};
+let sb, P, info, rows = [], results = [], doneRequests = new Set(), ownershipDone = null, busy = false;
 
-const badge = (text, tone) => `<span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${({red:'bg-red-100 text-red-700',amber:'bg-amber-100 text-amber-800',green:'bg-emerald-100 text-emerald-700',gray:'bg-slate-100 text-slate-600'})[tone]}">${esc(text)}</span>`;
-const btn = (label, a, data = {}, tone = 'primary') => `<button data-a="${a}" ${Object.entries(data).map(([k,v])=>`data-${k}="${esc(v)}"`).join(' ')} class="rounded-lg px-3 py-1.5 text-sm font-medium ${({primary:'bg-slate-900 text-white hover:bg-slate-700',ghost:'border border-slate-300 hover:bg-slate-100',danger:'bg-red-600 text-white hover:bg-red-500'})[tone]}">${esc(label)}</button>`;
+const card = (inner) => `<section class="rounded-2xl bg-white border border-slate-200 shadow-sm p-6 mb-6">${inner}</section>`;
+const h2 = (t, sub = '') => `<h2 class="text-lg font-semibold">${t}</h2>${sub ? `<p class="text-sm text-slate-500 mt-1">${sub}</p>` : ''}`;
+const inp = 'w-full rounded-lg border border-slate-300 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400';
 
-// ---- dialogs -----------------------------------------------------------------
-function modal(html, wide) { $('#dlgBody').innerHTML = html; $('#dlg').style.width = wide ? 'min(94vw,64rem)' : ''; if (!$('#dlg').open) $('#dlg').showModal(); }
-const closeModal = () => $('#dlg').close();
-function askNote(title, required) {
-  return new Promise((resolve) => {
-    modal(`<h3 class="text-lg font-semibold">${esc(title)}</h3>
-      <textarea id="note" rows="4" class="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="${required ? 'A reason is required' : 'Optional note'}"></textarea>
-      <p id="noteErr" class="text-xs text-red-600 mt-1 h-4"></p>
-      <div class="mt-3 flex justify-end gap-2">${btn('Cancel','mCancel',{},'ghost')}${btn('Confirm','mOk')}</div>`);
-    askNote.ok = () => { const v = $('#note').value.trim(); if (required && !v) { $('#noteErr').textContent = 'Please write a reason.'; return; } closeModal(); resolve(v); };
-    askNote.cancel = () => { closeModal(); resolve(null); };
+function errorScreen(reason) {
+  $('#app').innerHTML = card(`<div class="text-center py-6"><div class="mx-auto h-12 w-12 rounded-full bg-red-100 text-red-600 grid place-items-center text-xl font-bold">!</div>
+    <h1 class="mt-4 text-xl font-semibold">We could not open this page</h1><p class="mt-2 text-slate-600">${esc(REASONS[reason] || 'Something went wrong. Please try again later.')}</p></div>`);
+}
+
+// ---- page ----------------------------------------------------------------------
+function render() {
+  const open = info.requests.filter((r) => !doneRequests.has(r.id));
+  $('#app').innerHTML = `
+  <div class="mb-6"><div class="text-sm text-slate-500">${esc(info.issuer)}</div>
+    <h1 class="text-2xl font-semibold tracking-tight">Hello ${esc(info.contact.name || '')}</h1>
+    <p class="text-slate-600">Supplier compliance portal for <b>${esc(info.party.name)}</b>. This private link expires ${fmt(info.expires_at)}.</p></div>
+
+  ${card(`${h2('What we need from you')}
+    ${open.length ? `<ul class="mt-3 divide-y divide-slate-100">${open.map((r) => `<li class="py-2.5"><div class="font-medium">${esc(r.subject)}</div>
+      <div class="text-sm text-slate-500">${esc(r.message || '')}${r.due_on ? ` Due ${fmt(r.due_on)}.` : ''}</div></li>`).join('')}</ul>`
+      : '<p class="mt-3 text-sm text-slate-500">There are no open requests right now. You can still send us documents below.</p>'}`)}
+
+  ${card(`${h2('Upload documents', 'Reports, declarations, certificates, datasheets. Up to 50 MB per file.')}
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Related request<select id="upReq" data-change="reqPick" class="${inp} mt-1"><option value="">General upload</option>${open.map((r) => `<option value="${r.id}" data-dt="${esc(r.doc_type || '')}">${esc(r.subject)}</option>`).join('')}</select></label>
+      <label class="text-sm">Document type<select id="upType" class="${inp} mt-1">${info.doc_types.map((d) => `<option value="${esc(d.code)}">${esc(d.name)}</option>`).join('')}</select></label>
+      <label class="text-sm">Date on document (optional)<input id="upDate" type="date" class="${inp} mt-1"></label>
+      <label class="text-sm">Note (optional)<input id="upNote" maxlength="300" class="${inp} mt-1"></label>
+    </div>
+    <label id="drop" class="mt-4 block rounded-xl border-2 border-dashed border-slate-300 p-8 text-center cursor-pointer hover:bg-slate-50">
+      <div class="font-medium">Drag files here or click to choose</div><div class="text-xs text-slate-500 mt-1">PDF, Excel, Word, CSV or images</div>
+      <input id="files" type="file" multiple class="hidden"></label>
+    <ul id="uploads" class="mt-3 space-y-1.5 text-sm">${results.map((r) => `<li class="flex gap-2 ${r.ok ? 'text-emerald-700' : r.ok === false ? 'text-red-600' : 'text-slate-500'}"><span>${r.ok ? '✓' : r.ok === false ? '✕' : '…'}</span><span class="truncate">${esc(r.name)}</span><span class="ml-auto shrink-0">${esc(r.msg)}</span></li>`).join('')}</ul>`)}
+
+  ${ownershipDone ? card(`${h2('Ownership statement')}<p class="mt-3 text-emerald-700 text-sm">✓ Thank you. Your ownership statement was received on ${fmt(ownershipDone)} and is awaiting review.</p>`) : card(`
+    ${h2('Ownership and parent companies', `Please list every parent company and every owner holding ${esc(info.config.ownership_min_percent)}% or more, direct or indirect. This helps us meet sanctions and export-control requirements.`)}
+    ${info.last_ownership ? `<p class="mt-2 text-xs text-slate-500">Last statement: ${esc(info.last_ownership.status.replace('_', ' '))}, ${fmt(info.last_ownership.submitted_at)}.</p>` : ''}
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Legal company name<input id="owName" value="${esc(info.party.name)}" class="${inp} mt-1"></label>
+      <label class="text-sm">Country (2-letter code)<input id="owCountry" maxlength="2" value="${esc(info.party.country || '')}" class="${inp} mt-1 uppercase"></label>
+    </div>
+    <div class="mt-4 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="pb-1 pr-2">Owner or parent name</th><th class="pb-1 pr-2">Type</th><th class="pb-1 pr-2 w-20">Country</th><th class="pb-1 pr-2 w-20">Owns %</th><th class="pb-1 pr-2">Relationship</th><th></th></tr></thead>
+    <tbody id="rowsBody">${rows.map((r, i) => rowHtml(r, i)).join('')}</tbody></table></div>
+    <div class="mt-2 flex flex-wrap gap-2 items-center"><button data-a="addRow" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100">+ Add row</button>
+      <label class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 cursor-pointer">Import CSV<input id="csv" type="file" accept=".csv" class="hidden"></label>
+      <span class="text-xs text-slate-400">CSV columns: name, type, country, percent, relationship</span></div>
+    <label class="mt-4 flex gap-2 text-sm"><input id="owNone" type="checkbox" class="mt-0.5"> <span>No individual or entity owns ${esc(info.config.ownership_min_percent)}% or more of our company, and we have no parent company.</span></label>
+    <div class="grid sm:grid-cols-2 gap-3 mt-4">
+      <label class="text-sm">Your name<input id="cfName" value="${esc(info.contact.name || '')}" class="${inp} mt-1"></label>
+      <label class="text-sm">Your title<input id="cfTitle" value="${esc(info.contact.job_title || '')}" class="${inp} mt-1"></label></div>
+    <div class="mt-4 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm text-slate-600">${esc(info.config.certification_text)}</div>
+    <label class="mt-3 flex gap-2 text-sm"><input id="cfOk" type="checkbox" class="mt-0.5"> <span>I agree to the statement above.</span></label>
+    <ul id="owErr" class="mt-3 text-sm text-red-600 list-disc pl-5"></ul>
+    <button data-a="submitOwn" class="mt-4 rounded-lg bg-slate-900 text-white px-5 py-2.5 font-medium hover:bg-slate-700">Certify &amp; submit</button>`)}
+  <p class="text-xs text-slate-400 text-center">Your visit and submissions are recorded for compliance purposes.</p>`;
+  wireUpload();
+}
+
+const rowHtml = (r, i) => `<tr data-i="${i}">
+  <td class="pr-2 pb-1.5"><input data-f="name" value="${esc(r.name)}" class="${inp}"></td>
+  <td class="pr-2 pb-1.5"><select data-f="kind" class="${inp}"><option value="entity" ${r.kind === 'entity' ? 'selected' : ''}>Company</option><option value="individual" ${r.kind === 'individual' ? 'selected' : ''}>Individual</option></select></td>
+  <td class="pr-2 pb-1.5"><input data-f="country" maxlength="2" value="${esc(r.country)}" class="${inp} uppercase"></td>
+  <td class="pr-2 pb-1.5"><input data-f="percent" value="${esc(r.percent)}" class="${inp}"></td>
+  <td class="pr-2 pb-1.5"><select data-f="relationship" class="${inp}">${['owner', 'parent', 'ultimate_owner'].map((v) => `<option value="${v}" ${r.relationship === v ? 'selected' : ''}>${v.replace('_', ' ')}</option>`).join('')}</select></td>
+  <td class="pb-1.5"><button data-a="delRow" data-i="${i}" class="text-slate-400 hover:text-red-600 px-2" title="Remove">✕</button></td></tr>`;
+const blank = () => ({ name: '', kind: 'entity', country: '', percent: '', relationship: 'owner' });
+
+function syncRows() {
+  document.querySelectorAll('#rowsBody tr').forEach((tr) => {
+    const r = rows[+tr.dataset.i]; if (!r) return;
+    tr.querySelectorAll('[data-f]').forEach((el) => { r[el.dataset.f] = el.value; });
   });
 }
 
-// ---- shell -------------------------------------------------------------------
-function shell(inner) {
-  const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
-  $('#app').innerHTML = `
-  <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-    <div class="font-semibold tracking-tight mr-4">Conformality</div>
-    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}${tab('audit','Audit')}</nav>
-    <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
-  </div></header>
-  <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
-}
-const loading = () => shell('<p class="text-slate-500">Loading…</p>');
-const fail = (e) => shell(`<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc(e.message || e)}</div>`);
-
-// ---- views -------------------------------------------------------------------
-const ORDER = { high: 0, medium: 1, low: 2 };
-const TONE = { high: 'red', medium: 'amber', low: 'gray' };
-const ROUTE = { documents: 'review', ownership_submissions: 'review', parties: 'suppliers', requests: 'requests' };
-
-async function renderToday() {
-  loading();
-  const { data, error } = await sb.from('v_open_work').select('*');
-  if (error) return fail(error);
-  data.sort((a, b) => ORDER[a.severity] - ORDER[b.severity] || (a.due_on || '9').localeCompare(b.due_on || '9'));
-  const n = (s) => data.filter((x) => x.severity === s).length;
-  const card = (label, v, tone) => `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="text-sm text-slate-500">${label}</div><div class="text-3xl font-semibold mt-1 ${tone}">${v}</div></div>`;
-  shell(`
-    <div class="grid grid-cols-3 gap-3 mb-6">${card('Needs action now', n('high'), 'text-red-600')}${card('Coming up', n('medium'), 'text-amber-600')}${card('Low priority', n('low'), 'text-slate-600')}</div>
-    <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">
-    ${data.length ? data.map((w) => `
-      <div class="p-4 flex items-start gap-3">
-        <div class="pt-0.5">${badge(w.severity, TONE[w.severity])}</div>
-        <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
-      </div>`).join('') : '<p class="p-8 text-center text-slate-500">Nothing needs attention. Nice.</p>'}
-    </div>`);
+// ---- upload ----------------------------------------------------------------------
+function wireUpload() {
+  const drop = $('#drop'), files = $('#files');
+  if (!drop) return;
+  files.onchange = () => handleFiles([...files.files]);
+  ['dragover', 'dragenter'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('bg-slate-100'); }));
+  ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('bg-slate-100'); }));
+  drop.addEventListener('drop', (e) => handleFiles([...e.dataTransfer.files]));
+  const csv = $('#csv'); if (csv) csv.onchange = () => importCsv(csv.files[0]);
 }
 
-async function renderSuppliers() {
-  loading();
-  const { data, error } = await sb.from('v_supplier_status').select('*').order('name');
-  if (error) return fail(error);
-  const cmrt = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
-  shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2>${btn('+ Add supplier', 'addSupplier')}</div>
-  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th><th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
-    <tbody class="divide-y divide-slate-100">${data.map((s) => `<tr>
-      <td class="p-3 font-medium">${esc(s.name)}<div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
-      <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
-      <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
-      <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
-      <td class="p-3 text-right whitespace-nowrap">${btn('Add contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="7">No suppliers yet.</td></tr>'}
-    </tbody></table></div>`);
+async function sha256(file) {
+  const h = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+  return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 
-const isCmrt = (d) => d.doc_type === 'cmrt' || (/cmrt/i.test((d.file_name || '') + ' ' + (d.title || '')) && /\.xlsx?$/i.test(d.file_name || ''));
-async function renderReview() {
-  loading();
-  const [docs, own, decl] = await Promise.all([
-    sb.from('documents').select('id,title,doc_type,issued_on,file_name,storage_path,sha256,created_at,party:parties(name)').eq('status', 'received').order('created_at'),
-    sb.from('ownership_submissions').select('*, party:parties(name)').eq('status', 'pending_review').order('certified_at'),
-    sb.from('cmrt_declarations').select('id,document_id,is_complete,smelters:cmrt_smelters(check_status)')
-  ]);
-  if (docs.error || own.error || decl.error) return fail(docs.error || own.error || decl.error);
-  const dm = new Map(decl.data.map((x) => [x.document_id, x]));
-  const cmrtLine = (d) => { if (!isCmrt(d)) return ''; const x = dm.get(d.id); if (!x) return '<div class="mt-1">' + badge('Smelters not read yet', 'amber') + '</div>'; const f = x.smelters.filter((q) => FLAG.includes(q.check_status) || !q.check_status).length; return '<div class="mt-1 flex gap-2">' + (f ? badge(f + ' smelters need attention', 'red') : badge('No smelter flags', 'green')) + (x.is_complete ? '' : badge('Declaration incomplete', 'amber')) + '</div>'; };
-  const cmrtBtn = (d) => btn('View', 'viewDoc', { id: d.id });
-  const empty = (t) => `<p class="p-6 text-center text-slate-500">${t}</p>`;
-  shell(`
-  <h2 class="text-xl font-semibold mb-3">Documents to review</h2>
-  <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-8">
-  ${docs.data.map((d) => `<div class="p-4"><div class="flex flex-wrap items-center gap-3">
-      <div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div>
-      <div class="text-sm text-slate-500">${esc(d.party?.name || '')} · ${esc(d.doc_type)} · uploaded ${fmt(d.created_at)}</div>
-      <div class="text-xs text-slate-400 font-mono truncate">SHA-256 ${esc(d.sha256.slice(0, 16))}…</div>${cmrtLine(d)}</div>
-      <div class="flex flex-wrap gap-2">${cmrtBtn(d)}${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
-    </div></div>`).join('') || empty('No documents waiting for review.')}
-  </div>
-  <h2 class="text-xl font-semibold mb-3">Ownership submissions</h2>
-  <div class="space-y-4">
-  ${own.data.map((o) => `<div class="rounded-xl bg-white border border-slate-200 p-4">
-      <div class="flex flex-wrap items-start gap-3"><div class="flex-1"><div class="font-medium">${esc(o.party?.name)}</div>
-      <div class="text-sm text-slate-500">Certified by ${esc(o.certifier_name)}${o.certifier_title ? ', ' + esc(o.certifier_title) : ''} on ${fmt(o.certified_at)}</div></div>
-      <div class="flex gap-2">${btn('Accept & screen owners', 'own', { id: o.id, s: 'accept' })}${btn('Send back', 'own', { id: o.id, s: 'reject' }, 'danger')}</div></div>
-      ${o.none_above_threshold && !o.rows.length ? '<p class="mt-3 text-sm text-slate-600">Supplier states no owners at or above the threshold.</p>' : `
-      <table class="mt-3 w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">Name</th><th>Type</th><th>Country</th><th>Percent</th><th>Relationship</th></tr></thead>
-      <tbody>${o.rows.map((r) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(r.name)}</td><td>${esc(r.kind)}</td><td>${esc(r.country)}</td><td>${esc(r.percent)}%</td><td>${esc(r.relationship)}</td></tr>`).join('')}</tbody></table>`}
-    </div>`).join('') || `<div class="rounded-xl bg-white border border-slate-200">${empty('No ownership submissions waiting.')}</div>`}
-  </div>`);
+async function handleFiles(list) {
+  if (busy || !list.length) return;
+  busy = true;
+  const reqId = $('#upReq').value || null, type = $('#upType').value, date = $('#upDate').value || null, note = $('#upNote').value;
+  for (const f of list) {
+    const row = { name: f.name, ok: null, msg: 'Uploading…' }; results.unshift(row); refreshList();
+    try {
+      const prep = await P.rpc('supplier_prepare_upload', { p_token: token, p_file_name: f.name, p_size_bytes: f.size, p_request_id: reqId });
+      if (prep.error || !prep.data?.ok) throw new Error(REASONS[prep.data?.reason] || prep.error?.message || 'Could not start upload');
+      const up = await sb.storage.from('compliance-docs').upload(prep.data.path, f, { upsert: false, contentType: f.type || 'application/octet-stream' });
+      if (up.error) throw new Error('Upload failed. Please try again.');
+      const hash = await sha256(f);
+      const sub = await P.rpc('supplier_submit_document', { p_token: token, p_slot_id: prep.data.slot_id, p_doc_type: type, p_title: f.name, p_sha256: hash, p_issued_on: date, p_reporting_year: null, p_notes: note || null });
+      if (sub.error || !sub.data?.ok) throw new Error(REASONS[sub.data?.reason] || sub.error?.message || 'Could not record the file');
+      row.ok = true; row.msg = 'Received';
+      if (reqId) doneRequests.add(reqId);
+    } catch (e) { row.ok = false; row.msg = e.message; }
+    refreshList();
+  }
+  busy = false;
+  if (reqId && doneRequests.has(reqId)) { const keep = [...results]; render(); results = keep; refreshList(); }
+}
+function refreshList() {
+  const ul = $('#uploads'); if (!ul) return;
+  ul.innerHTML = results.map((r) => `<li class="flex gap-2 ${r.ok ? 'text-emerald-700' : r.ok === false ? 'text-red-600' : 'text-slate-500'}"><span>${r.ok ? '✓' : r.ok === false ? '✕' : '…'}</span><span class="truncate">${esc(r.name)}</span><span class="ml-auto shrink-0">${esc(r.msg)}</span></li>`).join('');
 }
 
-// ---- actions -----------------------------------------------------------------
-const cmrtBadge = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
+// ---- ownership -------------------------------------------------------------------
 function splitCsv(line) {
   const out = []; let cur = '', q = false;
   for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; }
   out.push(cur.trim()); return out;
 }
-
-async function renderSkus() {
-  loading();
-  const { data, error } = await sb.from('v_sku_trace').select('*').order('sku');
-  if (error) return fail(error);
-  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">SKUs</h2><span class="text-sm text-slate-500">${data.length} total</span>
-    <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64">
-    <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add SKU', 'addSku')}</div>
-  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
-  <tbody id="skuBody" class="divide-y divide-slate-100">${data.map((s) => `<tr><td class="p-3 font-medium">${esc(s.sku)}</td><td class="p-3">${esc(s.description || '')}</td><td class="p-3">${esc(s.supplier_name)}</td><td class="p-3">${cmrtBadge(s)}</td><td class="p-3">${fmt(s.valid_until)}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No SKUs yet. Add one, or import a CSV with columns: sku, description, supplier.</td></tr>'}</tbody></table></div>`);
-  $('#skuQ').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#skuBody tr').forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
-  $('#skuCsv').onchange = (e) => importSkus(e.target.files[0]);
-}
-
-async function importSkus(file) {
+async function importCsv(file) {
   if (!file) return;
-  const { data: sup, error } = await sb.from('parties').select('id,name').contains('roles', ['supplier']);
-  if (error) return toast(error.message);
-  const map = new Map(sup.map((s) => [s.name.trim().toLowerCase(), s.id]));
   const lines = (await file.text()).split(/\r?\n/).filter((l) => l.trim());
-  const head = splitCsv(lines[0] || '').map((h) => h.toLowerCase().replace(/[^a-z]/g, ''));
-  const ix = (keys) => head.findIndex((h) => keys.includes(h));
-  const iS = ix(['sku', 'partnumber', 'item']), iD = ix(['description', 'desc']), iP = ix(['supplier', 'vendor', 'manufacturer']), iN = ix(['supplierpartnumber', 'supplierpn', 'mpn']);
-  if (iS < 0 || iP < 0) return toast('The CSV needs "sku" and "supplier" columns.');
-  const rows = [], bad = new Set();
-  for (const l of lines.slice(1)) {
-    const c = splitCsv(l), sku = (c[iS] || '').trim(); if (!sku) continue;
-    const sid = map.get((c[iP] || '').trim().toLowerCase());
-    if (!sid) { bad.add(c[iP] || '(blank)'); continue; }
-    rows.push({ sku, description: iD >= 0 ? c[iD] || null : null, supplier_id: sid, supplier_part_number: iN >= 0 ? c[iN] || null : null });
+  if (!lines.length) return;
+  let head = splitCsv(lines[0]).map((h) => h.toLowerCase().replace(/[^a-z]/g, ''));
+  const hasHead = head.includes('name') || head.includes('ownername');
+  if (!hasHead) head = ['name', 'type', 'country', 'percent', 'relationship'];
+  const col = (...keys) => head.findIndex((h) => keys.includes(h));
+  const ix = { name: col('name', 'ownername', 'company'), kind: col('type', 'kind'), country: col('country', 'countrycode'), percent: col('percent', 'ownership', 'owns'), rel: col('relationship', 'role') };
+  syncRows(); rows = rows.filter((r) => r.name || r.percent || r.country);
+  for (const l of lines.slice(hasHead ? 1 : 0)) {
+    const c = splitCsv(l); const g = (i) => (i >= 0 ? c[i] || '' : '');
+    const kind = g(ix.kind).toLowerCase().startsWith('ind') || g(ix.kind).toLowerCase() === 'person' ? 'individual' : 'entity';
+    const rel = g(ix.rel).toLowerCase().replace(/\s+/g, '_');
+    rows.push({ name: g(ix.name), kind, country: g(ix.country).toUpperCase(), percent: g(ix.percent).replace('%', ''), relationship: ['owner', 'parent', 'ultimate_owner'].includes(rel) ? rel : 'owner' });
   }
-  let done = 0;
-  for (let i = 0; i < rows.length; i += 100) {
-    const r = await sb.from('skus').upsert(rows.slice(i, i + 100), { onConflict: 'sku' });
-    if (r.error) return modal(`<p class="text-red-600 text-sm">${esc(r.error.message)}</p><p class="text-sm mt-2">${done} SKUs were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-    done += Math.min(100, rows.length - i);
-  }
-  if (bad.size) modal(`<h3 class="text-lg font-semibold">${done} SKUs saved</h3><p class="text-sm text-slate-600 mt-2">These supplier names did not match a supplier exactly, so their rows were skipped. Add the supplier or fix the spelling and import again:</p><ul class="mt-2 text-sm list-disc pl-5">${[...bad].map((b) => `<li>${esc(b)}</li>`).join('')}</ul><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  else toast(`${done} SKUs saved`);
-  renderSkus();
+  const keep = { n: $('#owName').value, c: $('#owCountry').value, none: $('#owNone').checked, a: $('#cfName').value, t: $('#cfTitle').value };
+  render(); $('#owName').value = keep.n; $('#owCountry').value = keep.c; $('#owNone').checked = keep.none; $('#cfName').value = keep.a; $('#cfTitle').value = keep.t;
 }
 
-async function renderRequests() {
-  loading();
-  const { data, error } = await sb.from('requests').select('id,subject,status,due_on,last_reminder_on,party:parties(name),contact:party_contacts(name,email)').in('status', ['sent', 'reminded', 'received']).order('due_on', { nullsFirst: false });
-  if (error) return fail(error);
-  const today = new Date().toISOString().slice(0, 10);
-  const st = (r) => r.status === 'received' ? badge('Received', 'green') : r.due_on && r.due_on < today ? badge('Overdue', 'red') : badge(r.status === 'reminded' ? 'Reminded' : 'Sent', 'amber');
-  shell(`<h2 class="text-xl font-semibold mb-4">Open requests</h2>
-  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Request</th><th class="p-3">Status</th><th class="p-3">Due</th><th class="p-3">Last reminder</th><th class="p-3"></th></tr></thead>
-  <tbody class="divide-y divide-slate-100">${data.map((r) => `<tr><td class="p-3"><div class="font-medium">${esc(r.subject)}</div><div class="text-xs text-slate-400">${esc(r.party?.name)} · ${esc(r.contact?.name || 'no contact')}</div></td><td class="p-3">${st(r)}</td><td class="p-3">${fmt(r.due_on)}</td><td class="p-3">${fmt(r.last_reminder_on)}</td>
-  <td class="p-3 text-right whitespace-nowrap">${r.status !== 'received' ? btn('Remind', 'remind', { id: r.id }, 'ghost') + ' ' : ''}${btn('Close', 'closeReq', { id: r.id })}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No open requests.</td></tr>'}</tbody></table></div>`);
-}
-
-// ---- conflict minerals ----------------------------------------------------------
-const FLAG = ['non_conformant', 'other', 'not_listed', 'no_id'];
-const SM_TONE = { listed: 'gray', conformant: 'green', active: 'amber', non_conformant: 'red', other: 'red', not_listed: 'red', no_id: 'red' };
-const SM_LABEL = { listed: 'On RMI list, conformance not stated', conformant: 'Conformant', active: 'Active (in audit)', non_conformant: 'Non-conformant', other: 'Unrecognised status', not_listed: 'Not on RMAP list', no_id: 'No smelter ID' };
-const sheetRows = (wb, n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '' });
-const findHeader = (rows, needles) => rows.slice(0, 80).findIndex((r) => needles.every((n) => r.some((c) => String(c).toLowerCase().includes(n))));
-function labelVal(rows, labels) {
-  for (const r of rows) for (let i = 0; i < r.length; i++) {
-    const c = String(r[i]).toLowerCase();
-    if (labels.some((l) => c.includes(l))) for (let j = i + 1; j < r.length; j++) if (String(r[j]).trim() !== '') return r[j];
-  }
-  return '';
-}
-const asDate = (v) => typeof v === 'number' ? new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10) : (isNaN(Date.parse(v)) ? null : new Date(v).toISOString().slice(0, 10));
-const sha256 = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((x) => x.toString(16).padStart(2, '0')).join('');
-
-let minF = { show: 'attention', year: '', supplier: '', archived: false };
-const DISP = { accepted: 'Accepted after review', follow_up: 'Following up with supplier', not_used: 'Supplier confirmed not in use' };
-const DISP_TONE = { accepted: 'green', follow_up: 'amber', not_used: 'green' };
-const isFlagged = (s) => FLAG.includes(s.check_status) || !s.check_status;
-const isOpenFlag = (s) => isFlagged(s) && !['accepted', 'not_used'].includes(s.disposition);
-function declInfo(d) {
-  const open = d.smelters.filter(isOpenFlag).length, flagged = d.smelters.filter(isFlagged).length, st = d.document?.status;
-  if (d.archived_at) return { key: 'archived', badge: badge('Archived', 'gray'), attention: false, open };
-  if (st === 'rejected') return { key: 'rejected', badge: badge('Rejected', 'red'), attention: false, open };
-  if (open) return { key: 'open', badge: badge(open + ' to review', 'red'), attention: true, open };
-  if (st === 'received') return { key: 'undecided', badge: badge('Awaiting your decision', 'amber'), attention: true, open };
-  return { key: 'done', badge: badge(flagged ? 'Reviewed' : 'Clear', 'green'), attention: false, open };
-}
-function declSection(all) {
-  const rows = all.map((d) => ({ d, i: declInfo(d) }));
-  const years = [...new Set(all.map((d) => d.reporting_year))].sort((a, b) => b - a), sups = [...new Set(all.map((d) => d.party?.name).filter(Boolean))].sort();
-  const nAtt = rows.filter((r) => r.i.attention).length, nArch = rows.filter((r) => r.i.key === 'archived').length;
-  let list = rows.filter((r) => (minF.show === 'attention' ? r.i.attention : minF.archived || r.i.key !== 'archived') && (!minF.year || String(r.d.reporting_year) === minF.year) && (!minF.supplier || r.d.party?.name === minF.supplier));
-  const seg = (k, label) => `<button data-a="minF" data-k="show" data-v="${k}" class="px-3 py-1 text-sm rounded-md ${minF.show === k ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${label}</button>`;
-  const sel = (id, opts, cur, ph) => `<select id="${id}" class="rounded-lg border border-slate-300 p-1.5 text-sm"><option value="">${ph}</option>${opts.map((o) => `<option ${String(o) === cur ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
-  const mi = (label, a, data) => `<button data-a="${a}" ${Object.entries(data).map(([k, v]) => `data-${k}="${esc(v)}"`).join(' ')} class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100">${label}</button>`;
-  const empty = minF.show === 'attention' ? 'Nothing needs attention. Switch to All to see past declarations.' : 'No declarations match.';
-  return `<div class="flex flex-wrap items-center gap-3 mb-2"><h3 class="font-semibold">Checked declarations</h3>
-    <div class="inline-flex rounded-lg bg-slate-200 p-0.5">${seg('attention', 'Needs attention' + (nAtt ? ` (${nAtt})` : ''))}${seg('all', 'All')}</div>
-    ${minF.show === 'all' ? `<div class="flex flex-wrap items-center gap-2">${sel('fYear', years, minF.year, 'Any year')}${sel('fSup', sups, minF.supplier, 'Any supplier')}${nArch ? `<label class="text-sm text-slate-600 flex items-center gap-1.5"><input id="fArch" type="checkbox" ${minF.archived ? 'checked' : ''}> Show archived (${nArch})</label>` : ''}</div>` : ''}</div>
-  <div class="rounded-xl bg-white border border-slate-200"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
-  <tbody class="divide-y divide-slate-100">${list.map(({ d, i }) => `<tr${i.key === 'archived' ? ' class="text-slate-400"' : ''}><td class="p-3 font-medium">${esc(d.party?.name)}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}${i.key === 'archived' ? `<div class="text-xs font-normal">Archived: ${esc(d.archive_reason || '')}</div>` : ''}</td><td class="p-3">${d.reporting_year}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${i.badge}</td><td class="p-3 text-right whitespace-nowrap">${btn('Review', 'findings', { id: d.id, doc: d.document_id })}
-    <details class="relative inline-block text-left align-middle"><summary class="list-none cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100">More ▾</summary><div class="absolute right-0 z-20 mt-1 w-48 rounded-lg border border-slate-200 bg-white shadow-lg py-1">${mi('All declared smelters', 'viewDecl', { id: d.id })}${mi('Re-check against list', 'recheck', { id: d.id })}${mi('Re-read original file', 'reread', { id: d.id, doc: d.document_id })}${i.key === 'archived' ? mi('Restore', 'archiveDecl', { id: d.id, on: '0' }) : mi('Archive…', 'archiveDecl', { id: d.id, on: '1' })}</div></details></td></tr>`).join('') || `<tr><td colspan="6" class="p-8 text-center text-slate-500">${empty}</td></tr>`}</tbody></table></div>`;
-}
-function bindMinF() {
-  const y = $('#fYear'), p = $('#fSup'), a = $('#fArch');
-  if (y) y.onchange = () => { minF.year = y.value; renderMinerals(); };
-  if (p) p.onchange = () => { minF.supplier = p.value; renderMinerals(); };
-  if (a) a.onchange = () => { minF.archived = a.checked; renderMinerals(); };
-}
-
-async function renderMinerals() {
-  loading();
-  const [ld, docs, decl] = await Promise.all([
-    sb.from('reference_list_loads').select('loaded_at,row_count,notes').eq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1),
-    sb.from('documents').select('id,title,issued_on,status,party:parties(name)').eq('doc_type', 'cmrt').in('status', ['received', 'accepted', 'accepted_with_gaps']),
-    sb.from('cmrt_declarations').select('id,document_id,reporting_year,declaration_scope,is_complete,completeness_notes,archived_at,archive_reason,party:parties(name),document:documents(status),smelters:cmrt_smelters(check_status,disposition)').order('parsed_at', { ascending: false })]);
-  if (ld.error || docs.error || decl.error) return fail(ld.error || docs.error || decl.error);
-  const done = new Set(decl.data.map((d) => d.document_id)), pending = docs.data.filter((d) => !done.has(d.id)), last = ld.data[0];
-  shell(`<h2 class="text-xl font-semibold mb-4">Conflict minerals</h2>
-  <div class="rounded-xl bg-white border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
-    <div class="flex-1 min-w-[14rem]"><div class="font-medium">RMAP smelter list</div>
-    <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${last.row_count} smelters` : 'Not loaded yet. Download the latest Smelter Reference List from RMI and load it here.'}</div></div>
-    <label class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${last ? 'Load newer list' : 'Load smelter list'}<input id="rmapFile" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div>
-  <h3 class="font-semibold mb-2">CMRTs waiting to be read</h3>
-  <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-6">${pending.map((d) => `<div class="p-4 flex items-center gap-3"><div class="flex-1"><div class="font-medium">${esc(d.title)}</div><div class="text-sm text-slate-500">${esc(d.party?.name)} · ${esc(d.status.replace('_', ' '))}</div></div>${btn('Read & check smelters', 'parse', { id: d.id })}</div>`).join('') || '<p class="p-6 text-center text-slate-500">Nothing waiting. Uploaded CMRTs appear here.</p>'}</div>
-  ${declSection(decl.data)}`);
-  $('#rmapFile').onchange = (e) => importRmap(e.target.files[0]);
-  bindMinF();
-}
-
-function parseCsvText(t) {
-  t = t.replace(/^﻿/, ''); const out = []; let row = [], cur = '', q = false;
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (q) { if (ch === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
-    else if (ch === '"') q = true;
-    else if (ch === ',') { row.push(cur); cur = ''; }
-    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cur); out.push(row); row = []; cur = ''; }
-    else cur += ch;
-  }
-  if (cur !== '' || row.length) { row.push(cur); out.push(row); }
-  return out.filter((r) => r.some((c) => String(c).trim() !== ''));
-}
-let pendingRmap = null;
-async function importRmap(file) {
-  if (!file) return;
-  toast('Reading list…');
-  const isCsv = /\.csv$/i.test(file.name); let rows, best = null;
-  try {
-    if (isCsv) { const all = parseCsvText(await file.text()); const h = findHeader(all, ['metal']); if (h >= 0) best = { rows: all, h }; }
-    else { const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); for (const n of wb.SheetNames) { const r = sheetRows(wb, n), h = findHeader(r, ['metal']); if (h >= 0 && (!best || r.length > best.rows.length)) best = { rows: r, h }; } }
-  } catch (e) { return toast('Could not read that file.'); }
-  if (!best) return toast('Could not find a header row with a "Metal" column.');
-  const hdr = best.rows[best.h].map((x) => String(x).toLowerCase().replace(/^﻿/, '').trim());
-  const first = (...tests) => { for (const t of tests) { const i = hdr.findIndex((h) => (t instanceof RegExp ? t.test(h) : h === t)); if (i >= 0) return i; } return -1; };
-  const iM = first('metal', /metal/), iI = first('smelter id', 'smelter identification number', /identification|facility id|smelter id|^cid/);
-  const iN = first('standard smelter name', 'smelter name', 'facility name', /standard.*name/, /(smelter|facility).*name/, 'smelter reference');
-  const iC = first('country', /country/), iS = first(/conformance|conformant|assessment status|rmap status|^status$/);
-  if (iI < 0 || iN < 0 || iN === iM) return modal(`<p class="text-sm">Could not tell which columns hold the smelter ID and name. Columns found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  const map = new Map();
-  for (const r of best.rows.slice(best.h + 1)) {
-    const cid = String(r[iI] ?? '').trim(), name = String(r[iN] ?? '').trim(); if (!cid || !name) continue;
-    const metal = iM >= 0 ? String(r[iM] ?? '').trim() : null;
-    map.set(cid + '|' + metal, { cid, metal, name, country: iC >= 0 ? String(r[iC] ?? '').trim() || null : null, status: iS >= 0 ? String(r[iS] ?? '').trim() || null : 'Listed (conformance not stated)' });
-  }
-  rows = [...map.values()]; if (!rows.length) return toast('No smelters found in that file.');
-  if (rows.filter((x) => x.name.toLowerCase() === (x.metal || '').toLowerCase()).length > rows.length / 2) return toast('Names look the same as metals, so nothing was saved. Send me the file and I will fix the mapping.');
-  pendingRmap = { file, rows, hasStatus: iS >= 0 };
-  modal(`<h3 class="text-lg font-semibold">Check before loading</h3>
-    <p class="text-sm text-slate-600 mt-1">${rows.length} smelters found. Name comes from "${esc(hdr[iN])}", ID from "${esc(hdr[iI])}"${iS >= 0 ? `, status from "${esc(hdr[iS])}"` : ''}.</p>
-    ${iS >= 0 ? '' : '<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">This file has no conformance status column. Smelters will show as "On RMI list, conformance not stated", so the check confirms a smelter is a known one but not that it is conformant. For a conformance check, load the RMAP Conformant Smelters list.</div>'}
-    <div class="mt-3 overflow-x-auto"><table class="w-full text-xs"><thead class="text-left text-slate-500"><tr><th>Metal</th><th>Smelter name</th><th>Country</th><th>ID</th></tr></thead><tbody>${rows.slice(0, 5).map((x) => `<tr class="border-t border-slate-100"><td class="py-1">${esc(x.metal)}</td><td>${esc(x.name)}</td><td>${esc(x.country)}</td><td class="font-mono">${esc(x.cid)}</td></tr>`).join('')}</tbody></table></div>
-    <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Load ' + rows.length + ' smelters', 'commitRmap')}</div>`);
-}
-async function commitRmap() {
-  const { file, rows } = pendingRmap || {}; if (!rows) return; closeModal(); toast('Loading…');
-  const path = `reference/rmap/${crypto.randomUUID()}/${file.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
-  const up = await sb.storage.from('compliance-docs').upload(path, file, { upsert: false });
-  const ld = await sb.from('reference_list_loads').insert({ list_code: 'RMAP', status: 'loading', file_sha256: await sha256(await file.arrayBuffer()), storage_path: up.error ? null : path, notes: file.name, row_count: rows.length }).select('id').single();
-  if (ld.error) return toast(ld.error.message);
-  for (let i = 0; i < rows.length; i += 500) {
-    const r = await sb.from('rmap_smelters').insert(rows.slice(i, i + 500).map((x) => ({ ...x, load_id: ld.data.id })));
-    if (r.error) { await sb.from('reference_list_loads').update({ status: 'failed' }).eq('id', ld.data.id); return toast(r.error.message); }
-  }
-  await sb.from('reference_list_loads').update({ status: 'complete' }).eq('id', ld.data.id);
-  const decl = await sb.from('cmrt_declarations').select('id');
-  for (const d of decl.data || []) await sb.rpc('check_declaration_smelters', { p_declaration: d.id });
-  pendingRmap = null; toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
-}
-
-async function processCmrt(id, openAfter) {
-  toast('Reading CMRT…');
-  const { data: d, error } = await sb.from('documents').select('id,party_id,storage_path,issued_on,reporting_year').eq('id', id).single();
-  if (error) return toast(error.message);
-  const u = await sb.storage.from('compliance-docs').createSignedUrl(d.storage_path, 120);
-  if (u.error) return toast(u.error.message);
-  let wb; try { wb = XLSX.read(await (await fetch(u.data.signedUrl)).arrayBuffer(), { type: 'array' }); } catch (e) { return toast('Could not read this file as an Excel CMRT.'); }
-  const ds = wb.SheetNames.find((n) => /declaration/i.test(n)), ss = wb.SheetNames.find((n) => /smelter\s*list/i.test(n)) || wb.SheetNames.find((n) => /smelter/i.test(n));
-  if (!ss) return toast('No smelter list sheet found in this file.');
-  const dr = ds ? sheetRows(wb, ds) : [], sr = sheetRows(wb, ss);
-  const shortTxt = (c) => { const t = String(c).replace(/\s+/g, ' ').trim().toLowerCase(); return t.length <= 70 ? t : ''; };
-  const h = sr.slice(0, 80).findIndex((r) => r.some((c) => shortTxt(c).startsWith('metal')) && r.some((c) => shortTxt(c).startsWith('smelter')));
-  if (h < 0) return toast('Could not find the smelter table header row.');
-  const hdr = sr[h].map(shortTxt), idxs = (f) => hdr.map((x, i) => (x && f(x) ? i : -1)).filter((i) => i >= 0);
-  const iM = idxs((x) => x.startsWith('metal'))[0] ?? -1;
-  const iN = idxs((x) => x.startsWith('smelter name'))[0] ?? -1, iL = idxs((x) => /^smelter look-?up/.test(x))[0] ?? -1;
-  const iC = idxs((x) => x.includes('country') && x.startsWith('smelter'))[0] ?? idxs((x) => x.includes('country'))[0] ?? -1;
-  const idCols = idxs((x) => x.includes('identification'));
-  if (iM < 0 || (iN < 0 && iL < 0) || iN === iM) return modal(`<p class="text-sm">Could not tell which CMRT columns hold the metal and smelter name. Headers found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  const ph = /^(enter|select|please)/i, METALS = ['gold', 'tantalum', 'tin', 'tungsten', 'cobalt', 'mica'], sm = [], seen = new Set();
-  for (const r of sr.slice(h + 1)) {
-    const metal = String(r[iM] ?? '').toLowerCase().trim(); if (!metal || ph.test(metal)) continue;
-    let name = String(iN >= 0 ? r[iN] ?? '' : '').trim(); if (!name || ph.test(name)) name = String(iL >= 0 ? r[iL] ?? '' : '').trim(); if (ph.test(name)) name = '';
-    { const lk = String(iL >= 0 ? r[iL] ?? '' : '').trim(); if (/^unknown$/i.test(name) && lk && !ph.test(lk) && !/^unknown$/i.test(lk)) name = lk; }
-    let cid = ''; for (const c of idCols) { const m = String(r[c] ?? '').toUpperCase().match(/CID\d{5,}/); if (m) { cid = m[0]; break; } }
-    if (!name && !cid) continue;
-    if (cid) { const k = metal + '|' + cid; if (seen.has(k)) continue; seen.add(k); }
-    sm.push({ metal: METALS.find((m) => metal.includes(m)) || 'other', smelter_name: name || null, smelter_country: iC >= 0 ? String(r[iC] ?? '').trim() || null : null, smelter_id: cid || null });
-  }
-  if (sm.length && sm.filter((x) => (x.smelter_name || '').toLowerCase() === x.metal).length > sm.length / 2) return toast('The smelter names look like metals, so nothing was saved. Please send me this CMRT so I can fix the reading.');
-  const company = String(labelVal(dr, ['company name'])).trim(), auth = String(labelVal(dr, ['authorizer'])).trim(), adate = asDate(labelVal(dr, ['authorization date', 'effective date']));
-  const sc = String(labelVal(dr, ['declaration scope'])).toLowerCase();
-  const scope = !sc ? null : sc.includes('company') ? 'company' : sc.includes('categor') ? 'product_category' : sc.includes('user') ? 'user_defined' : sc.includes('product') ? 'product' : null;
-  const missing = [!company && 'company name', !auth && 'authorizer', !adate && 'authorization date', !scope && 'declaration scope', !sm.length && 'smelter list entries'].filter(Boolean);
-  const year = d.reporting_year || (d.issued_on ? +d.issued_on.slice(0, 4) : new Date().getFullYear());
-  const ver = (dr.slice(0, 12).flat().join(' ').match(/version\s*([0-9]+(\.[0-9]+)*)/i) || [])[1] || null;
-  const dc = await sb.from('cmrt_declarations').insert({ document_id: id, party_id: d.party_id, reporting_year: year, template_version: ver, declaration_scope: scope, declared_company: company || null, authorizer_name: auth || null, authorized_on: adate, is_complete: !missing.length, completeness_notes: missing.length ? 'Could not find: ' + missing.join(', ') + '. Please verify in the file.' : null }).select('id').single();
-  if (dc.error) return toast(dc.error.code === '23505' ? 'This CMRT was already read.' : dc.error.message);
-  for (let i = 0; i < sm.length; i += 200) { const r = await sb.from('cmrt_smelters').insert(sm.slice(i, i + 200).map((x) => ({ ...x, declaration_id: dc.data.id }))); if (r.error) return toast(r.error.message); }
-  const c = await sb.rpc('check_declaration_smelters', { p_declaration: dc.data.id });
-  toast(c.error ? 'Saved, but: ' + c.error.message : `${c.data[0].smelters_checked} smelters checked, ${c.data[0].smelters_flagged} need attention`);
-  route();
-  if (openAfter) showFindings(dc.data.id, id);
-}
-
-
-async function fetchAll(make) {
-  let out = [], from = 0;
-  for (;;) { const { data, error } = await make(from, from + 999); if (error) throw error; out = out.concat(data); if (data.length < 1000) break; from += 1000; }
-  return out;
-}
-let lastFindings = null;
-async function showFindings(declId, docId) {
-  toast('Loading findings…');
-  try {
-    const [dRes, docRes, sm, ref] = await Promise.all([
-      sb.from('cmrt_declarations').select('reporting_year,declaration_scope,is_complete,completeness_notes,party:parties(name)').eq('id', declId).single(),
-      docId ? sb.from('documents').select('status').eq('id', docId).single() : Promise.resolve({ data: null }),
-      fetchAll((a, b) => sb.from('cmrt_smelters').select('id,metal,smelter_name,smelter_country,smelter_id,check_status,disposition,disposition_note').eq('declaration_id', declId).order('id').range(a, b)),
-      fetchAll((a, b) => sb.from('v_rmap_current').select('cid,metal,name,country,status').order('id').range(a, b))]);
-    if (dRes.error) throw dRes.error;
-    const d = dRes.data, key = (m, c) => String(m || '').toLowerCase() + '|' + String(c || '').trim().toUpperCase();
-    const refMap = new Map(); for (const r of ref) { const k = key(r.metal, r.cid); if (!refMap.has(k)) refMap.set(k, r); }
-    const declKeys = new Set(sm.filter((x) => x.smelter_id).map((x) => key(x.metal, x.smelter_id)));
-    const issues = sm.filter(isFlagged).sort((x, y) => (!!x.disposition) - (!!y.disposition));
-    const missing = [...refMap.entries()].filter(([k]) => !declKeys.has(k)).map(([, r]) => r);
-    const matched = [...declKeys].filter((k) => refMap.has(k)).length, pct = refMap.size ? Math.round((100 * matched) / refMap.size) : 0;
-    lastFindings = { declId, docId, name: `${d.party?.name || 'supplier'}_${d.reporting_year}_CMRT_findings`, issues, missing };
-    const stat = (l, v, t) => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs text-slate-500">${l}</div><div class="text-2xl font-semibold ${t || ''}">${v}</div></div>`;
-    const canDecide = docId && docRes.data?.status === 'received';
-    modal(`<h3 class="text-lg font-semibold">${esc(d.party?.name)} · ${d.reporting_year} CMRT · smelter findings</h3>
-    <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">${stat('Declared (unique smelters)', declKeys.size + issues.filter((x) => !x.smelter_id).length)}${stat('Still to review', issues.filter(isOpenFlag).length, issues.filter(isOpenFlag).length ? 'text-red-600' : 'text-emerald-600')}${stat('On list, not declared', missing.length)}${stat('Share of list declared', pct + '%', pct >= 80 ? 'text-red-600' : '')}</div>
-    ${pct >= 80 && refMap.size ? `<div class="mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">This declaration covers ${pct}% of the reference list. A genuine declaration normally names only the smelters in the supplier's own supply chain. Ask the supplier to confirm or correct it.</div>` : ''}
-    ${d.is_complete ? '' : `<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">${esc(d.completeness_notes || 'Some declaration fields could not be read.')}</div>`}
-    <div class="max-h-[52vh] overflow-auto mt-4 pr-1">
-    <h4 class="font-semibold">Declared by the supplier but needing attention (${issues.length})</h4>
-    <p class="text-xs text-slate-500">Not on the reference list, no smelter ID, or not conformant. Use Review to record what you decided and why; it is kept in the audit trail.</p>
-    <table class="w-full text-sm mt-2"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter as declared</th><th>Country</th><th>ID</th><th>Issue</th><th></th></tr></thead><tbody>${issues.map((x) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(x.metal)}</td><td>${esc(x.smelter_name || '')}</td><td>${esc(x.smelter_country || '')}</td><td class="font-mono text-xs">${esc(x.smelter_id || '')}</td><td>${badge(SM_LABEL[x.check_status] || 'Not checked', 'red')}${x.disposition ? `<div class="mt-1">${badge(DISP[x.disposition], DISP_TONE[x.disposition])}</div>` : ''}</td><td class="text-right whitespace-nowrap">${btn(x.disposition ? 'Edit' : 'Review', 'smelterNote', { id: x.id }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="6" class="py-3 text-slate-500">None.</td></tr>'}</tbody></table>
-    <div class="flex items-center gap-3 mt-6"><h4 class="font-semibold">On the reference list but not declared (${missing.length})</h4><input id="fMiss" placeholder="Filter" class="ml-auto rounded-lg border border-slate-300 p-1.5 text-sm w-40"></div>
-    <p class="text-xs text-slate-500">Smelters RMI lists that this supplier did not name. Not a problem on its own: a supplier only needs to name the smelters it uses.</p>
-    <table class="w-full text-sm mt-2"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter</th><th>Country</th><th>ID</th></tr></thead><tbody id="missBody">${missing.map((x) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(x.metal)}</td><td>${esc(x.name)}</td><td>${esc(x.country || '')}</td><td class="font-mono text-xs">${esc(x.cid)}</td></tr>`).join('') || '<tr><td colspan="4" class="py-3 text-slate-500">None.</td></tr>'}</tbody></table></div>
-    <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Download CSV', 'dlFindings', {}, 'ghost')}${canDecide ? btn('Reject', 'doc', { id: docId, s: 'rejected' }, 'danger') + btn('Accept with gaps', 'doc', { id: docId, s: 'accepted_with_gaps' }, 'ghost') + btn('Accept', 'doc', { id: docId, s: 'accepted' }) : ''}${btn('Close', 'close', {}, 'ghost')}</div>`, true);
-    $('#fMiss').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#missBody tr').forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
-  } catch (e) { toast(e.message || 'Could not load findings'); }
-}
-
-
-// ---- audit trail ---------------------------------------------------------------
-const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'SKU', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Transaction', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
-const AUD_ACT = { insert: 'Created', update: 'Changed', delete: 'Deleted' };
-let auditF = { from: '', to: '', area: '', action: '', q: '' }, auditRows = [];
-const auditLabel = (r) => { const d = r.new_data || r.old_data || {}; return d.title || d.name || d.subject || d.sku || d.matched_name || d.reference || d.email || d.key || d.code || d.file_name || (d.case_no ? '#' + d.case_no : '') || ''; };
-const clip = (v, n = 60) => { const t = v === null || v === undefined ? '-' : typeof v === 'object' ? JSON.stringify(v) : String(v); return t.length > n ? t.slice(0, n) + '…' : t; };
-function auditSummary(r) {
-  const o = r.old_data || {}, n = r.new_data || {};
-  if (r.table_name === 'portal_events') return `${(n.event_type || '').replace(/_/g, ' ')}${n.ip ? ' from ' + n.ip : ''}`;
-  if (r.action === 'update') { const ch = Object.keys(n).filter((k) => k !== 'updated_at' && JSON.stringify(o[k]) !== JSON.stringify(n[k])); return ch.slice(0, 5).map((k) => `${k}: ${clip(o[k])} → ${clip(n[k])}`).join('; ') + (ch.length > 5 ? ` (+${ch.length - 5} more)` : ''); }
-  if (r.action === 'insert') return 'Created' + (n.status ? ` (status ${n.status})` : '');
-  return 'Deleted';
-}
-const auditWho = (r) => r.actor_email || (r.actor ? r.actor : 'System or external visitor');
-const auditWhen = (t) => new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-const applyAF = (q) => {
-  if (auditF.from) q = q.gte('at', new Date(auditF.from + 'T00:00:00').toISOString());
-  if (auditF.to) q = q.lte('at', new Date(auditF.to + 'T23:59:59.999').toISOString());
-  if (auditF.area) q = q.eq('table_name', auditF.area);
-  if (auditF.action) q = q.eq('action', auditF.action);
-  return q;
-};
-const auditMatch = (r) => { const q = auditF.q.trim().toLowerCase(); return !q || [auditSummary(r), auditWho(r), auditLabel(r), r.row_id, AUD_AREA[r.table_name] || r.table_name].join(' ').toLowerCase().includes(q); };
-async function loadAuditAll(cap) {
-  let out = [], from = 0, full = false;
-  for (;;) {
-    const { data, error } = await applyAF(sb.from('audit_log').select('*')).order('id', { ascending: true }).range(from, from + 999);
-    if (error) throw error;
-    out = out.concat(data); full = data.length === 1000;
-    if (!full || out.length >= cap) break; from += 1000;
-  }
-  const truncated = full && out.length >= cap; if (out.length > cap) out = out.slice(0, cap);
-  return { rows: out.filter(auditMatch), truncated };
-}
-async function verifyChain() {
-  const box = $('#chainBox'); if (box) box.innerHTML = '<span class="text-slate-500">Verifying integrity…</span>';
-  const { data, error } = await sb.rpc('verify_audit_chain');
-  if (error) { if (box) box.innerHTML = badge('Could not verify', 'amber'); return null; }
-  const v = data[0]; if (box) box.innerHTML = v.is_valid ? badge(`Integrity verified · ${v.rows_checked} entries`, 'green') : badge(`Integrity problem at entry #${v.first_bad_id}`, 'red');
-  return v;
-}
-async function renderAudit() {
-  const inp = 'mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm';
-  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Audit trail</h2><div id="chainBox" class="ml-auto text-sm"></div></div>
-  <div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
-    <label class="text-sm">From<input id="aFrom" type="date" class="${inp}"></label><label class="text-sm">To<input id="aTo" type="date" class="${inp}"></label>
-    <label class="text-sm">Area<select id="aArea" class="${inp}"><option value="">All areas</option>${Object.entries(AUD_AREA).sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
-    <label class="text-sm">Action<select id="aAct" class="${inp}"><option value="">All</option>${Object.entries(AUD_ACT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
-    <label class="text-sm">Search<input id="aQ" placeholder="User, record, change" class="${inp}"></label></div>
-    <div class="mt-3 flex flex-wrap gap-2">${btn('Apply filters', 'auditApply')}${btn('Export CSV', 'auditCsv', {}, 'ghost')}${btn('Print / save as PDF report', 'auditPrint', {}, 'ghost')}</div></div>
-  <div id="auditList"><p class="text-slate-500">Loading…</p></div>`);
-  $('#aFrom').value = auditF.from; $('#aTo').value = auditF.to; $('#aArea').value = auditF.area; $('#aAct').value = auditF.action; $('#aQ').value = auditF.q;
-  $('#aQ').onkeydown = (e) => { if (e.key === 'Enter') actions.auditApply(); };
-  verifyChain(); loadAuditList();
-}
-async function loadAuditList() {
-  const { data, error, count } = await applyAF(sb.from('audit_log').select('*', { count: 'exact' })).order('id', { ascending: false }).limit(500);
-  const box = $('#auditList'); if (!box) return;
-  if (error) { box.innerHTML = `<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc(error.message)}</div>`; return; }
-  auditRows = data.filter(auditMatch);
-  box.innerHTML = `<p class="text-sm text-slate-500 mb-2">${count} matching entries${count > 500 ? ', showing the latest 500. Narrow the filters or export for the full set.' : ''}${auditF.q ? ` · ${auditRows.length} match the search` : ''}</p>
-  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">#</th><th class="p-3">When</th><th class="p-3">Who</th><th class="p-3">Action</th><th class="p-3">Record</th><th class="p-3">What changed</th><th class="p-3"></th></tr></thead>
-  <tbody class="divide-y divide-slate-100">${auditRows.map((r) => `<tr><td class="p-3 text-slate-400">${r.id}</td><td class="p-3 whitespace-nowrap">${esc(auditWhen(r.at))}</td><td class="p-3">${esc(auditWho(r))}</td><td class="p-3">${badge(AUD_ACT[r.action], r.action === 'delete' ? 'red' : r.action === 'update' ? 'amber' : 'gray')}</td>
-  <td class="p-3"><div class="font-medium">${esc(AUD_AREA[r.table_name] || r.table_name)}</div><div class="text-xs text-slate-400 truncate max-w-[14rem]">${esc(auditLabel(r))}</div></td><td class="p-3 text-slate-600 max-w-md">${esc(auditSummary(r))}</td><td class="p-3 text-right">${btn('Details', 'auditRow', { id: r.id }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No entries match.</td></tr>'}</tbody></table></div>`;
-}
-function readFilters() { auditF = { from: $('#aFrom').value, to: $('#aTo').value, area: $('#aArea').value, action: $('#aAct').value, q: $('#aQ').value }; }
-async function exportAuditCsv() {
-  toast('Preparing export…');
-  try {
-    const { rows, truncated } = await loadAuditAll(100000); const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const head = ['Entry ID', 'Time (UTC)', 'User email', 'User ID', 'Action', 'Area', 'Record ID', 'Summary', 'Old data', 'New data', 'Previous hash', 'Entry hash'];
-    const lines = [head.map(q).join(',')].concat(rows.map((r) => [r.id, new Date(r.at).toISOString(), r.actor_email, r.actor, r.action, AUD_AREA[r.table_name] || r.table_name, r.row_id, auditSummary(r), r.old_data ? JSON.stringify(r.old_data) : '', r.new_data ? JSON.stringify(r.new_data) : '', r.prev_hash, r.row_hash].map(q).join(',')));
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' })); a.download = `audit_trail_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
-    toast(`${rows.length} entries exported${truncated ? ' (limit reached; narrow the dates for the rest)' : ''}`);
-  } catch (e) { toast(e.message || 'Export failed'); }
-}
-async function printAuditReport() {
-  toast('Building report…');
-  try {
-    const [{ rows, truncated }, v, cs] = await Promise.all([loadAuditAll(5000), verifyChain(), sb.from('app_settings').select('value').eq('key', 'company_name').maybeSingle()]);
-    const company = typeof cs.data?.value === 'string' ? cs.data.value : '';
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone, now = new Date();
-    const counts = {}; rows.forEach((r) => { const k = (AUD_AREA[r.table_name] || r.table_name) + '|' + r.action; counts[k] = (counts[k] || 0) + 1; });
-    const f = auditF, filt = [f.from && 'from ' + f.from, f.to && 'to ' + f.to, f.area && 'area: ' + (AUD_AREA[f.area] || f.area), f.action && 'action: ' + AUD_ACT[f.action], f.q && 'search: "' + f.q + '"'].filter(Boolean).join(', ') || 'none (all entries)';
-    const last = rows[rows.length - 1];
-    $('#printArea').innerHTML = `<h1>Compliance audit report</h1><div style="margin-top:2px">${esc(company)}</div>
-    <p style="margin:8px 0">Generated ${esc(now.toLocaleString())} (${esc(tz)}) by ${esc(profile?.full_name || user?.email || '')}<br>Filters: ${esc(filt)}<br>Entries in this report: ${rows.length}${truncated ? ' (limited to the first 5,000; export the CSV for the full set)' : ''}${rows.length ? `<br>Entry range: #${rows[0].id} to #${last.id}, ${esc(auditWhen(rows[0].at))} to ${esc(auditWhen(last.at))}` : ''}</p>
-    <h2>Integrity check</h2><p>${v ? (v.is_valid ? `The hash chain was verified when this report was generated: all ${v.rows_checked} entries in the log are intact.` : `<b>The hash chain check failed at entry #${v.first_bad_id}.</b> Entries from that point may have been altered.`) : 'The integrity check could not be completed.'}${last ? `<br>Latest entry in this report: #${last.id}, hash <span class="mono">${esc(last.row_hash)}</span>` : ''}</p>
-    <p style="font-size:8pt;color:#555">Each entry stores a SHA-256 hash of its content and of the entry before it, so any later change to a recorded entry breaks the chain. The log is append-only: entries cannot be edited or deleted through the application. The user shown for an entry comes from the signed-in session; entries made by external visitors through private links or by automated jobs show no user.</p>
-    <h2>Summary by area</h2><table><thead><tr><th>Area</th><th>Created</th><th>Changed</th><th>Deleted</th></tr></thead><tbody>${[...new Set(Object.keys(counts).map((k) => k.split('|')[0]))].sort().map((a) => `<tr><td>${esc(a)}</td><td>${counts[a + '|insert'] || 0}</td><td>${counts[a + '|update'] || 0}</td><td>${counts[a + '|delete'] || 0}</td></tr>`).join('')}</tbody></table>
-    <h2>Entries</h2><table><thead><tr><th>#</th><th>Time</th><th>User</th><th>Action</th><th>Area</th><th>Record</th><th>Details</th><th>Hash</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${esc(auditWhen(r.at))}</td><td>${esc(auditWho(r))}</td><td>${AUD_ACT[r.action]}</td><td>${esc(AUD_AREA[r.table_name] || r.table_name)}</td><td>${esc(auditLabel(r) || r.row_id || '')}</td><td>${esc(auditSummary(r))}</td><td class="mono">${esc(r.row_hash.slice(0, 10))}</td></tr>`).join('')}</tbody></table>`;
-    setTimeout(() => window.print(), 150);
-  } catch (e) { toast(e.message || 'Could not build the report'); }
-}
-
-// ---- corrected-CMRT request ------------------------------------------------------
-async function collectFindings(declId) {
-  const [dRes, sm, ref] = await Promise.all([
-    sb.from('cmrt_declarations').select('id,party_id,reporting_year,is_complete,completeness_notes,party:parties(name)').eq('id', declId).single(),
-    fetchAll((a, b) => sb.from('cmrt_smelters').select('metal,smelter_name,smelter_country,smelter_id,check_status,disposition').eq('declaration_id', declId).order('id').range(a, b)),
-    fetchAll((a, b) => sb.from('v_rmap_current').select('cid,metal').order('id').range(a, b))]);
-  if (dRes.error) throw dRes.error;
-  const key = (m, c) => String(m || '').toLowerCase() + '|' + String(c || '').trim().toUpperCase();
-  const refKeys = new Set(ref.map((r) => key(r.metal, r.cid))), declKeys = new Set(sm.filter((x) => x.smelter_id).map((x) => key(x.metal, x.smelter_id)));
-  const matched = [...declKeys].filter((k) => refKeys.has(k)).length;
-  return { d: dRes.data, issues: sm.filter(isOpenFlag), pct: refKeys.size ? Math.round((100 * matched) / refKeys.size) : 0 };
-}
-function buildExceptions(f) {
-  const cap = (m) => (m ? m[0].toUpperCase() + m.slice(1) : ''), out = [], used = new Set();
-  const take = (fn) => f.issues.filter((x, i) => !used.has(i) && fn(x) && (used.add(i), true));
-  const ni = take((x) => !x.smelter_id && /not yet identified/i.test(x.smelter_name || ''));
-  if (ni.length) out.push(`Unidentified smelters for ${[...new Set(ni.map((x) => cap(x.metal)))].join(', ')}. Identify them and give their RMI smelter IDs, or give a dated plan to do so. If any smelter is still unidentified, the answer to the question on whether all smelters are identified should be No.`);
-  const nl = take((x) => !x.smelter_id && /not listed/i.test(x.smelter_name || ''));
-  if (nl.length) out.push(`Entries marked "Smelter not listed" with no usable name (${nl.map((x) => cap(x.metal) + (x.smelter_country ? ', ' + x.smelter_country : '')).join('; ')}). Give each smelter's full legal name, country and address.`);
-  take((x) => !x.smelter_id).forEach((x) => out.push(`${x.smelter_name || 'Unnamed smelter'} (${cap(x.metal)}) has no smelter ID. Give the RMI smelter ID, or the full name, country and address if it has none.`));
-  take((x) => x.check_status === 'not_listed').forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id}) is not on the current RMI smelter list. Confirm the ID is correct and whether you still source from this smelter.`));
-  take((x) => x.check_status === 'non_conformant').forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id}) is not conformant under RMAP. Confirm whether you still use it and your plan to stop or have it audited.`));
-  take(() => true).forEach((x) => out.push(`${x.smelter_name || 'Smelter'} (${cap(x.metal)}, ${x.smelter_id || 'no ID'}) has an unrecognised status. Confirm its current status.`));
-  if (f.pct >= 80) out.push(`The smelter list covers about ${f.pct}% of the RMI reference list. List only the smelters actually in your supply chain for the products declared.`);
-  if (!f.d.is_complete) out.push(`Some declaration fields could not be read (${(f.d.completeness_notes || '').replace(/^Could not find: /, '').replace(/\. Please verify.*$/, '') || 'see the form'}). Make sure all mandatory fields are filled in.`);
-  return out;
-}
-async function requestCorrection(docId, note) {
-  const { data: d, error } = await sb.from('documents').select('id,title,party_id,created_at,party:parties(name)').eq('id', docId).single();
-  if (error) return toast(error.message);
-  const [c, x] = await Promise.all([sb.from('party_contacts').select('id,name,email').eq('party_id', d.party_id).eq('is_active', true), sb.from('cmrt_declarations').select('id').eq('document_id', docId).maybeSingle()]);
-  if (c.error) return toast(c.error.message);
-  if (!c.data.length) return modal(`<p class="text-sm">The decision was saved. To request a corrected CMRT, add a contact for <b>${esc(d.party?.name)}</b> first, then use Request documents on the Suppliers tab.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  let lines = [], year = new Date().getFullYear();
-  if (x.data) { try { const f = await collectFindings(x.data.id); lines = buildExceptions(f); year = f.d.reporting_year || year; } catch (e) { toast('Could not list the exceptions: ' + e.message); } }
-  const msg = `We reviewed the CMRT you submitted on ${fmt(d.created_at)} and need a corrected version.\n\n${note ? 'Reviewer note: ' + note + '\n\n' : ''}${lines.length ? 'Please resolve the following:\n' + lines.map((l, i) => `${i + 1}. ${l}`).join('\n') + '\n\n' : ''}Please resubmit using the current RMI CMRT template, completed and authorised by your declared authorizer.`;
-  const inpc = 'mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm';
-  actions.crx = { docId, lines: lines.length, partyId: d.party_id, partyName: d.party?.name, contacts: c.data };
-  modal(`<h3 class="text-lg font-semibold">Request a corrected CMRT from ${esc(d.party?.name)}</h3>
-    <p class="text-sm text-slate-500 mt-1">${lines.length ? lines.length + ' exceptions were listed from the review.' : 'No smelter exceptions were found, so only your note is included.'} The supplier will see this message on their upload page, so edit it as needed.</p>
-    <div class="grid sm:grid-cols-2 gap-3 mt-3"><label class="block text-sm">Send to<select id="crC" class="${inpc}">${c.data.map((q) => `<option value="${q.id}">${esc(q.name)} (${esc(q.email || 'no email')})</option>`).join('')}</select></label>
-    <label class="block text-sm">Due in (days)<input id="crD" type="number" min="1" max="165" value="30" class="${inpc}"></label></div>
-    <label class="block mt-3 text-sm">Subject<input id="crS" value="${esc(`Corrected ${year} CMRT needed`)}" class="${inpc}"></label>
-    <label class="block mt-3 text-sm">Message and exceptions<textarea id="crM" rows="14" class="${inpc}">${esc(msg)}</textarea></label>
-    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-[1rem]"></p>
-    <div class="mt-2 flex justify-end gap-2">${btn('Skip', 'close', {}, 'ghost')}${btn('Create request & link', 'mkCorrection')}</div>`, true);
-}
-async function mkCorrection() {
-  const k = actions.crx, contact = k.contacts.find((q) => q.id === $('#crC').value), subject = $('#crS').value.trim(), msg = $('#crM').value.trim(), days = Math.min(165, Math.max(1, +$('#crD').value || 30));
-  if (!subject || !msg) return ($('#fErr').textContent = 'Subject and message are required.');
-  const due = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
-  const r = await sb.from('requests').insert({ party_id: k.partyId, contact_id: contact.id, doc_type: 'cmrt', subject, message: msg, status: 'sent', due_on: due }).select('id').single();
-  if (r.error) return ($('#fErr').textContent = r.error.message);
-  const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: k.partyId, p_contact: contact.id, p_request: r.data.id, p_days: days + 14, p_label: subject });
-  if (l.error) return ($('#fErr').textContent = 'The request was logged, but the link failed: ' + l.error.message);
-  const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`, first = (contact.name || '').split(' ')[0] || 'there', dueTxt = new Date(due).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-  const short = `Hello ${first},\n\nWe reviewed the CMRT you submitted and need a corrected version${k.lines ? ` (${k.lines} items to resolve)` : ''}. The full list and a private upload link are here, no account needed:\n${url}\n\nPlease send it by ${dueTxt}.\n\nThank you,\n${profile?.full_name || ''}`;
-  actions.crxFull = `Hello ${first},\n\n${msg}\n\nPlease upload it using this private link, no account needed:\n${url}\n\nPlease send it by ${dueTxt}.\n\nThank you,\n${profile?.full_name || ''}`;
-  modal(`<h3 class="text-lg font-semibold">Request created</h3>
-    <p class="text-sm text-slate-500 mt-1">It is logged as sent and due ${fmt(due)}. The exceptions appear on the supplier's upload page. The link is shown only now.</p>
-    <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
-    <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}${btn('Copy full email text', 'copyFull', {}, 'ghost')}<a href="mailto:${encodeURIComponent(contact.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(short)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
-  route();
-}
-
-const actions = {
-  mkCorrection: () => mkCorrection(),
-  copyFull: async () => { await navigator.clipboard.writeText(actions.crxFull || ''); toast('Email text copied'); },
-  auditApply: () => { readFilters(); loadAuditList(); },
-  auditCsv: () => { readFilters(); exportAuditCsv(); },
-  auditPrint: () => { readFilters(); printAuditReport(); },
-  auditRow: ({ id }) => {
-    const r = auditRows.find((x) => String(x.id) === String(id)); if (!r) return;
-    const pre = (o) => o ? `<pre class="mt-1 max-h-48 overflow-auto rounded bg-slate-50 border border-slate-200 p-2 text-xs">${esc(JSON.stringify(o, null, 2))}</pre>` : '<div class="text-xs text-slate-400">None</div>';
-    modal(`<h3 class="text-lg font-semibold">Entry #${r.id}</h3><div class="mt-2 text-sm text-slate-600">${esc(auditWhen(r.at))} (UTC ${esc(new Date(r.at).toISOString())})<br>${esc(auditWho(r))} · ${esc(AUD_ACT[r.action])} · ${esc(AUD_AREA[r.table_name] || r.table_name)}${r.row_id ? ' · record ' + esc(r.row_id) : ''}</div>
-      <div class="mt-3 text-sm font-medium">Before</div>${pre(r.old_data)}<div class="mt-3 text-sm font-medium">After</div>${pre(r.new_data)}
-      <div class="mt-3 text-xs text-slate-400 font-mono break-all">Previous hash ${esc(r.prev_hash)}<br>Entry hash ${esc(r.row_hash)}</div><div class="mt-4 text-right">${btn('Close', 'close', {}, 'ghost')}</div>`, true);
-  },
-  viewDoc: async ({ id }) => {
-    const { data: d, error } = await sb.from('documents').select('id,title,doc_type,file_name,storage_path,sha256,status,issued_on,valid_until,source,notes,created_at,party:parties(name)').eq('id', id).single();
-    if (error) return toast(error.message);
-    if (isCmrt(d)) {
-      const x = await sb.from('cmrt_declarations').select('id').eq('document_id', id).maybeSingle();
-      if (x.error) return toast(x.error.message);
-      return x.data ? showFindings(x.data.id, id) : processCmrt(id, true);
-    }
-    const row = (l, v) => `<div class="flex gap-3 py-1.5 border-t border-slate-100 text-sm"><div class="w-32 text-slate-500 shrink-0">${l}</div><div class="min-w-0 break-words">${v}</div></div>`;
-    modal(`<h3 class="text-lg font-semibold">${esc(d.title)}</h3><div class="mt-3">${row('Supplier', esc(d.party?.name || ''))}${row('Type', esc(d.doc_type))}${row('File', esc(d.file_name))}${row('Uploaded', fmt(d.created_at))}${row('Date on document', fmt(d.issued_on))}${row('Valid until', fmt(d.valid_until))}${row('Source', esc((d.source || '').replace('_', ' ')))}${row('Notes', esc(d.notes || ''))}${row('SHA-256', '<span class="font-mono text-xs">' + esc(d.sha256) + '</span>')}</div>
-      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${d.status === 'received' ? btn('Reject', 'doc', { id, s: 'rejected' }, 'danger') + btn('Accept with gaps', 'doc', { id, s: 'accepted_with_gaps' }, 'ghost') + btn('Accept', 'doc', { id, s: 'accepted' }) : ''}${btn('Close', 'close', {}, 'ghost')}</div>`);
-  },
-  findings: ({ id, doc }) => showFindings(id, doc),
-  dlFindings: () => {
-    if (!lastFindings) return; const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const lines = [['Section', 'Metal', 'Smelter', 'Country', 'ID', 'Issue', 'Decision', 'Decision note'].map(q).join(',')]
-      .concat(lastFindings.issues.map((x) => ['Declared - needs attention', x.metal, x.smelter_name, x.smelter_country, x.smelter_id, SM_LABEL[x.check_status] || 'Not checked', DISP[x.disposition] || '', x.disposition_note || ''].map(q).join(',')))
-      .concat(lastFindings.missing.map((x) => ['On list - not declared', x.metal, x.name, x.country, x.cid, ''].map(q).join(',')));
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = lastFindings.name.replace(/[^A-Za-z0-9_-]+/g, '_') + '.csv'; a.click();
-  },
-  minF: ({ k, v }) => { minF[k] = v; renderMinerals(); },
-  archiveDecl: async ({ id, on }) => {
-    const archive = on === '1', note = archive ? await askNote('Archive this declaration? It stays on file and in the audit trail, and is hidden from the default list. Why is it being archived?', true) : '';
-    if (note === null) return;
-    const r = await sb.rpc('archive_cmrt_declaration', { p_declaration: id, p_archive: archive, p_reason: note || null });
-    if (r.error) return toast(r.error.message);
-    if (archive) minF.archived = false; toast(archive ? 'Archived' : 'Restored'); renderMinerals();
-  },
-  smelterNote: async ({ id }) => {
-    const x = lastFindings?.issues.find((i) => i.id === id); if (!x) return;
-    const h = await sb.from('audit_log').select('at,actor,actor_email,old_data,new_data').eq('table_name', 'cmrt_smelters').eq('row_id', id).eq('action', 'update').order('at', { ascending: false });
-    const hist = (h.data || []).filter((r) => (r.old_data?.disposition ?? null) !== (r.new_data?.disposition ?? null) || (r.old_data?.disposition_note ?? null) !== (r.new_data?.disposition_note ?? null));
-    const c = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
-    modal(`<h3 class="text-lg font-semibold">${esc(x.smelter_name || 'Unnamed smelter')}</h3>
-      <p class="text-sm text-slate-500">${esc(x.metal)}${x.smelter_country ? ' · ' + esc(x.smelter_country) : ''} · ${x.smelter_id ? 'ID ' + esc(x.smelter_id) : 'no smelter ID'} · ${esc(SM_LABEL[x.check_status] || 'Not checked')}</p>
-      <label class="block mt-4 text-sm">Decision<select id="dsD" class="${c}"><option value="accepted">${DISP.accepted}</option><option value="follow_up">${DISP.follow_up}</option><option value="not_used">${DISP.not_used}</option></select></label>
-      <label class="block mt-3 text-sm">Note (required: what you checked and why)<textarea id="dsN" rows="4" class="${c}">${esc(x.disposition_note || '')}</textarea></label>
-      <p id="fErr" class="text-xs text-red-600 mt-1 h-4"></p>
-      ${hist.length ? `<div class="mt-2 text-sm"><div class="font-medium">History</div><ul class="mt-1 max-h-40 overflow-auto space-y-2">${hist.map((r) => `<li class="text-xs text-slate-600 border-l-2 border-slate-200 pl-2">${esc(auditWhen(r.at))} · ${esc(auditWho(r))}<br>${r.new_data?.disposition ? '<b>' + esc(DISP[r.new_data.disposition]) + ':</b> ' + esc(r.new_data.disposition_note || '') : 'Decision cleared'}</li>`).join('')}</ul></div>` : ''}
-      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Back', 'back', {}, 'ghost')}${x.disposition ? btn('Clear decision', 'doDisp', { id, clear: '1' }, 'ghost') : ''}${btn('Save', 'doDisp', { id })}</div>`);
-    if (x.disposition) $('#dsD').value = x.disposition;
-  },
-  doDisp: async ({ id, clear }) => {
-    const note = clear ? null : $('#dsN').value.trim(), d = clear ? null : $('#dsD').value;
-    if (!clear && !note) return ($('#fErr').textContent = 'A written note is required.');
-    const r = await sb.rpc('set_smelter_disposition', { p_smelter: id, p_disposition: d, p_note: note });
-    if (r.error) return ($('#fErr').textContent = r.error.message);
-    toast(clear ? 'Decision cleared' : 'Saved'); const f = lastFindings; if (view === 'minerals') renderMinerals(); showFindings(f.declId, f.docId);
-  },
-  back: () => { const f = lastFindings; showFindings(f.declId, f.docId); },
-  reread: async ({ id, doc }) => {
-    const note = await askNote('Re-read this CMRT from the original file? The previous reading is replaced, and stays in the audit log.', false); if (note === null) return;
-    const r = await sb.rpc('reset_cmrt_declaration', { p_declaration: id }); if (r.error) return toast(r.error.message);
-    processCmrt(doc);
-  },
-  commitRmap: () => commitRmap(),
-  parse: ({ id }) => processCmrt(id),
-  recheck: async ({ id }) => { const c = await sb.rpc('check_declaration_smelters', { p_declaration: id }); toast(c.error ? c.error.message : `${c.data[0].smelters_flagged} need attention`); renderMinerals(); },
-  viewDecl: async ({ id }) => {
-    const { data, error } = await sb.from('cmrt_smelters').select('metal,smelter_name,smelter_country,smelter_id,check_status,disposition').eq('declaration_id', id);
-    if (error) return toast(error.message);
-    data.sort((a, b) => FLAG.includes(b.check_status) - FLAG.includes(a.check_status) || (a.smelter_name || '').localeCompare(b.smelter_name || ''));
-    modal(`<h3 class="text-lg font-semibold">Declared smelters</h3><div class="mt-3 max-h-[60vh] overflow-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter</th><th>Country</th><th>ID</th><th>RMAP status</th><th>Decision</th></tr></thead><tbody>${data.map((s) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(s.metal)}</td><td>${esc(s.smelter_name || '')}</td><td>${esc(s.smelter_country || '')}</td><td class="font-mono text-xs">${esc(s.smelter_id || '')}</td><td>${s.check_status ? badge(SM_LABEL[s.check_status], SM_TONE[s.check_status]) : badge('Not checked', 'gray')}</td><td>${s.disposition ? badge(DISP[s.disposition], DISP_TONE[s.disposition]) : ''}</td></tr>`).join('')}</tbody></table></div><div class="mt-4 text-right">${btn('Close', 'close')}</div>`);
-  },
-  resolveCase: ({ id }) => modal(`<h3 class="text-lg font-semibold">Resolve case</h3>
-    <label class="block mt-3 text-sm">Outcome<select id="csR" class="mt-1 w-full rounded-lg border border-slate-300 p-2"><option value="remediated">Remediated (supplier fixed or replaced it)</option><option value="accepted_risk">Accepted risk (with reasoning)</option><option value="false_positive">False positive</option><option value="not_applicable">Not applicable</option><option value="true_match">True match</option><option value="escalated_external">Escalated externally</option></select></label>
-    <label class="block mt-3 text-sm">What was done and why (required)<textarea id="csN" rows="4" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></textarea></label>
-    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
-    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Resolve', 'doResolve', { id })}</div>`),
-  doResolve: async ({ id }) => {
-    const note = $('#csN').value.trim(); if (!note) return ($('#fErr').textContent = 'A written reason is required.');
-    const { error } = await sb.from('cases').update({ status: 'resolved', resolution: $('#csR').value, resolution_notes: note }).eq('id', id);
-    if (error) return ($('#fErr').textContent = error.message);
-    closeModal(); toast('Case resolved'); route();
-  },
-  addSku: async () => {
-    const { data, error } = await sb.from('parties').select('id,name').contains('roles', ['supplier']).eq('is_active', true).order('name');
-    if (error) return toast(error.message);
-    if (!data.length) return modal(`<p>Add a supplier first.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-    const c = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
-    modal(`<h3 class="text-lg font-semibold">Add SKU</h3>
-      <label class="block mt-3 text-sm">SKU<input id="kSku" class="${c}"></label>
-      <label class="block mt-3 text-sm">Description<input id="kDesc" class="${c}"></label>
-      <label class="block mt-3 text-sm">Supplier<select id="kSup" class="${c}">${data.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
-      <label class="block mt-3 text-sm">Supplier part number (optional)<input id="kPn" class="${c}"></label>
-      <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
-      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSku')}</div>`);
-  },
-  saveSku: async () => {
-    const sku = $('#kSku').value.trim(); if (!sku) return ($('#fErr').textContent = 'Enter the SKU.');
-    const { error } = await sb.from('skus').insert({ sku, description: $('#kDesc').value.trim() || null, supplier_id: $('#kSup').value, supplier_part_number: $('#kPn').value.trim() || null });
-    if (error) return ($('#fErr').textContent = error.code === '23505' ? 'That SKU already exists.' : error.message);
-    closeModal(); toast('SKU added'); renderSkus();
-  },
-  remind: async ({ id }) => {
-    const { data: r, error } = await sb.from('requests').select('id,subject,message,status,party_id,due_on,party:parties(name),contact:party_contacts(id,name,email)').eq('id', id).single();
-    if (error) return toast(error.message);
-    if (!r.contact?.id) return toast('This request has no contact, so a link cannot be issued.');
-    const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: r.party_id, p_contact: r.contact.id, p_request: id, p_days: 30, p_label: 'Reminder: ' + r.subject });
-    if (l.error) return toast(l.error.message);
-    if (r.status === 'reminded') await sb.from('request_events').insert({ request_id: id, event_type: 'reminder', channel: 'email', notes: 'Reminder sent with a fresh link' });
-    const u = await sb.from('requests').update({ status: 'reminded' }).eq('id', id);
-    if (u.error) return toast(u.error.message);
-    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`;
-    const first = (r.contact.name || '').split(' ')[0] || 'there';
-    const body = `Hello ${first},\n\nA friendly reminder that we are still waiting for: ${r.subject}${r.due_on ? ' (due ' + fmt(r.due_on) + ')' : ''}.\n\nHere is a fresh private upload link. No account is needed:\n${url}\n\nIf it is already on its way, thank you, and please ignore this note.\n\n${profile?.full_name || ''}`;
-    modal(`<h3 class="text-lg font-semibold">Reminder logged</h3><p class="text-sm text-slate-500 mt-1">A fresh link was created for ${esc(r.party?.name)}. It is shown only now.</p>
-      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
-      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="mailto:${encodeURIComponent(r.contact.email || '')}?subject=${encodeURIComponent('Reminder: ' + r.subject)}&body=${encodeURIComponent(body)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
-    $('#dlg').addEventListener('close', () => { if (view === 'requests') renderRequests(); }, { once: true });
-  },
-  closeReq: ({ id }) => modal(`<h3 class="text-lg font-semibold">Close this request</h3>
-    <label class="block mt-3 text-sm">Outcome<select id="rcR" class="mt-1 w-full rounded-lg border border-slate-300 p-2"><option value="fulfilled">Fulfilled</option><option value="not_applicable">Not applicable</option><option value="supplier_declined">Supplier declined</option><option value="no_response_escalated">No response, escalated</option><option value="other">Other</option></select></label>
-    <label class="block mt-3 text-sm">Note (required unless fulfilled)<textarea id="rcN" rows="3" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></textarea></label>
-    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
-    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Close request', 'doClose', { id })}</div>`),
-  doClose: async ({ id }) => {
-    const reason = $('#rcR').value, note = $('#rcN').value.trim();
-    if (reason !== 'fulfilled' && !note) return ($('#fErr').textContent = 'Please add a note.');
-    const { error } = await sb.from('requests').update({ status: 'closed', close_reason: reason }).eq('id', id);
-    if (error) return ($('#fErr').textContent = error.message);
-    if (note) await sb.from('request_events').insert({ request_id: id, event_type: 'note', notes: note });
-    closeModal(); toast('Request closed'); renderRequests();
-  },
-  nav: ({ v }) => { view = v; route(); },
-  signout: async () => { await sb.auth.signOut(); },
-  mOk: () => askNote.ok(), mCancel: () => askNote.cancel(),
-  close: () => closeModal(),
-  file: async ({ path }) => {
-    const { data, error } = await sb.storage.from('compliance-docs').createSignedUrl(path, 300);
-    error ? toast(error.message) : window.open(data.signedUrl, '_blank', 'noopener');
-  },
-  doc: async ({ id, s }) => {
-    const note = await askNote(s === 'accepted' ? 'Accept this document?' : s === 'rejected' ? 'Why is it being rejected?' : 'What gaps need follow-up?', s !== 'accepted');
-    if (note === null) return;
-    const { error } = await sb.from('documents').update({ status: s, review_notes: note || null }).eq('id', id);
-    if (error) return toast(error.message);
-    toast('Saved'); route();
-    if (s === 'rejected' || s === 'accepted_with_gaps') {
-      const dd = await sb.from('documents').select('doc_type,file_name,title').eq('id', id).single();
-      if (!dd.error && isCmrt(dd.data)) requestCorrection(id, note);
-    }
-  },
-  own: async ({ id, s }) => {
-    const note = await askNote(s === 'accept' ? 'Accept this ownership statement' : 'Why is it being sent back?', true);
-    if (note === null) return;
-    const { data, error } = await sb.rpc(s === 'accept' ? 'accept_ownership_submission' : 'reject_ownership_submission', { p_id: id, p_notes: note });
-    if (error) return toast(error.message);
-    if (s === 'accept') {
-      let ok = 0, miss = 0;
-      for (const pid of (data || [])) { const r = await sb.rpc('screen_party', { p_party: pid }); r.error ? miss++ : ok++; }
-      toast(miss ? `Accepted. ${ok} owners screened, ${miss} could not be screened (are lists loaded?)` : `Accepted. ${ok} owners screened.`);
-    } else toast('Sent back');
-    route();
-  },
-  link: async ({ id, name }) => {
-    const { data: contacts, error } = await sb.from('party_contacts').select('id,name,email').eq('party_id', id).eq('is_active', true);
-    if (error) return toast(error.message);
-    if (!contacts.length) return modal(`<p>Add a contact for <b>${esc(name)}</b> first, so the link is tied to a named person.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-    modal(`<h3 class="text-lg font-semibold">Upload link for ${esc(name)}</h3>
-      <label class="block mt-3 text-sm">Who is it for?<select id="lkC" class="mt-1 w-full rounded-lg border border-slate-300 p-2">${contacts.map((c) => `<option value="${c.id}">${esc(c.name)} (${esc(c.email || 'no email')})</option>`).join('')}</select></label>
-      <label class="block mt-3 text-sm">Valid for (days)<input id="lkD" type="number" min="1" max="180" value="30" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
-      <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create link', 'mkLink', { id, name })}</div>`);
-  },
-  mkLink: async ({ id }) => {
-    const { data, error } = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: id, p_contact: $('#lkC').value, p_days: +$('#lkD').value });
-    if (error) return toast(error.message);
-    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${data.token}`;
-    modal(`<h3 class="text-lg font-semibold">Link ready</h3>
-      <p class="text-sm text-slate-500 mt-1">Copy it now. For security it cannot be shown again. Expires ${fmt(data.expires_at)}.</p>
-      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
-      <div class="mt-4 flex justify-end gap-2">${btn('Copy', 'copy')}${btn('Done', 'close', {}, 'ghost')}</div>`);
-  },
-  addSupplier: () => modal(`<h3 class="text-lg font-semibold">Add supplier</h3>
-    <label class="block mt-3 text-sm">Company name<input id="sName" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
-    <label class="block mt-3 text-sm">Country (2-letter code, e.g. DE)<input id="sCountry" maxlength="2" class="mt-1 w-full rounded-lg border border-slate-300 p-2 uppercase"></label>
-    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
-    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSupplier')}</div>`),
-  saveSupplier: async () => {
-    const name = $('#sName').value.trim(), c = $('#sCountry').value.trim().toUpperCase();
-    if (!name) return ($('#fErr').textContent = 'Enter the company name.');
-    if (c && !/^[A-Z]{2}$/.test(c)) return ($('#fErr').textContent = 'Country must be a 2-letter code, or leave it blank.');
-    const { error } = await sb.from('parties').insert({ name, country: c || null, roles: ['supplier'] });
-    if (error) return ($('#fErr').textContent = error.message);
-    closeModal(); toast('Supplier added'); route();
-  },
-  addContact: ({ id, name }) => modal(`<h3 class="text-lg font-semibold">Add contact at ${esc(name)}</h3>
-    <label class="block mt-3 text-sm">Full name<input id="cName" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
-    <label class="block mt-3 text-sm">Email<input id="cEmail" type="email" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
-    <label class="block mt-3 text-sm">Job title (optional)<input id="cTitle" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></label>
-    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
-    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveContact', { id })}</div>`),
-  saveContact: async ({ id }) => {
-    const n = $('#cName').value.trim(), em = $('#cEmail').value.trim();
-    if (!n || !em) return ($('#fErr').textContent = 'Name and email are required.');
-    const { error } = await sb.from('party_contacts').insert({ party_id: id, name: n, email: em, job_title: $('#cTitle').value.trim() || null });
-    if (error) return ($('#fErr').textContent = error.message);
-    closeModal(); toast('Contact added');
-  },
-  reqDocs: async ({ id, name }) => {
-    const [c, t] = await Promise.all([
-      sb.from('party_contacts').select('id,name,email').eq('party_id', id).eq('is_active', true),
-      sb.from('document_types').select('code,name').eq('is_active', true).eq('portal_uploadable', true).order('sort_order')]);
-    if (c.error || t.error) return toast((c.error || t.error).message);
-    if (!c.data.length) return modal(`<p>Add a contact for <b>${esc(name)}</b> first, so the request goes to a named person.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-    actions.rq = { contacts: c.data, types: t.data };
-    const first = t.data.find((x) => x.code === 'cmrt') || t.data[0];
-    const inpc = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
-    modal(`<h3 class="text-lg font-semibold">Request documents from ${esc(name)}</h3>
-      <label class="block mt-3 text-sm">Send to<select id="rqC" class="${inpc}">${c.data.map((x) => `<option value="${x.id}">${esc(x.name)} (${esc(x.email || 'no email')})</option>`).join('')}</select></label>
-      <label class="block mt-3 text-sm">What do we need?<select id="rqType" class="${inpc}">${t.data.map((x) => `<option value="${esc(x.code)}" ${x.code === first?.code ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
-      <label class="block mt-3 text-sm">Subject<input id="rqSub" value="${new Date().getFullYear()} ${esc(first?.name || '')}" class="${inpc}"></label>
-      <label class="block mt-3 text-sm">Extra message (optional)<textarea id="rqMsg" rows="3" class="${inpc}"></textarea></label>
-      <label class="block mt-3 text-sm">Due in (days)<input id="rqDue" type="number" min="1" max="165" value="30" class="${inpc}"></label>
-      <p id="fErr" class="text-xs text-red-600 mt-2 min-h-[1rem]"></p>
-      <p class="text-xs text-slate-400">Creating this logs the request as sent and makes a private upload link tied to it.</p>
-      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create request & link', 'mkReq', { id, name })}</div>`);
-  },
-  mkReq: async ({ id, name }) => {
-    const contact = actions.rq.contacts.find((x) => x.id === $('#rqC').value);
-    const subject = $('#rqSub').value.trim(), msg = $('#rqMsg').value.trim(), days = Math.min(165, Math.max(1, +$('#rqDue').value || 30));
-    if (!subject) return ($('#fErr').textContent = 'Enter a subject.');
-    const due = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
-    const r = await sb.from('requests').insert({ party_id: id, contact_id: contact.id, doc_type: $('#rqType').value, subject, message: msg || null, status: 'sent', due_on: due }).select('id').single();
-    if (r.error) return ($('#fErr').textContent = r.error.message);
-    const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: id, p_contact: contact.id, p_request: r.data.id, p_days: days + 14, p_label: subject });
-    if (l.error) return ($('#fErr').textContent = 'The request was logged, but the link failed: ' + l.error.message);
-    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`;
-    const first = (contact.name || '').split(' ')[0] || 'there';
-    const body = `Hello ${first},\n\nAs part of our supplier compliance program we need the following from ${name}: ${subject}.\n${msg ? '\n' + msg + '\n' : ''}\nPlease use this private link to upload it. No account is needed:\n${url}\n\nPlease send it by ${new Date(due).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. The link expires on ${new Date(l.data.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.\n\nThank you,\n${profile?.full_name || ''}`;
-    const mailto = `mailto:${encodeURIComponent(contact.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    modal(`<h3 class="text-lg font-semibold">Request created</h3>
-      <p class="text-sm text-slate-500 mt-1">It is logged as sent and due ${fmt(due)}. Copy the link or open a pre-filled email. The link is shown only now.</p>
-      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
-      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="${esc(mailto)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
-    toast('Request logged as sent');
-  },
-  copy: async () => { await navigator.clipboard.writeText($('#lkU').value); toast('Copied'); }
-};
-document.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b && actions[b.dataset.a]) actions[b.dataset.a](b.dataset); });
-document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { const s = $('#rqSub'); if (s && !s.dataset.t) s.value = `${new Date().getFullYear()} ${actions.rq.types.find((x) => x.code === e.target.value)?.name || ''}`; } });
-document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
-
-// ---- boot & auth ---------------------------------------------------------------
-function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, review: renderReview, audit: renderAudit })[view](); }
-
-function loginScreen(msg = '') {
-  $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
-    <h1 class="text-2xl font-semibold tracking-tight">Conformality - Compliance Ledger</h1><p class="text-sm text-slate-500 mt-1">Sign in with your work account.</p>
-    <input id="em" type="email" required autocomplete="username" placeholder="Email" class="mt-6 w-full rounded-lg border border-slate-300 p-2.5">
-    <input id="pw" type="password" required autocomplete="current-password" placeholder="Password" class="mt-3 w-full rounded-lg border border-slate-300 p-2.5">
-    <p class="text-sm text-red-600 mt-2 min-h-[1.25rem]">${esc(msg)}</p>
-    <button class="mt-2 w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium hover:bg-slate-700">Sign in</button></form></div>`;
-  $('#lf').onsubmit = async (e) => {
-    e.preventDefault();
-    const { error } = await sb.auth.signInWithPassword({ email: $('#em').value, password: $('#pw').value });
-    if (error) loginScreen(error.message);
+async function submitOwnership() {
+  syncRows();
+  const none = $('#owNone').checked;
+  const clean = rows.filter((r) => r.name.trim() || r.percent.toString().trim() || r.country.trim());
+  const errs = [];
+  clean.forEach((r, i) => {
+    if (!r.name.trim()) errs.push(`Row ${i + 1}: enter a name`);
+    if (!/^[A-Za-z]{2}$/.test(r.country.trim())) errs.push(`Row ${i + 1}: use a 2-letter country code (for example DE)`);
+    const p = parseFloat(String(r.percent).replace('%', ''));
+    if (!(p > 0 && p <= 100)) errs.push(`Row ${i + 1}: ownership percent must be between 0 and 100`);
+  });
+  if (!clean.length && !none) errs.push('Add at least one owner or parent, or tick the box saying there are none.');
+  if (clean.length && none) errs.push('You listed owners but also ticked "none". Please fix one of them.');
+  if (!$('#cfName').value.trim()) errs.push('Enter your name to certify.');
+  if (!$('#cfOk').checked) errs.push('Please agree to the statement.');
+  const ul = $('#owErr'); ul.innerHTML = errs.map((e) => `<li>${esc(e)}</li>`).join('');
+  if (errs.length) return;
+  const payload = {
+    entity_legal_name: $('#owName').value.trim(), entity_country: $('#owCountry').value.trim().toUpperCase(),
+    none_above_threshold: none, accepted_certification: true,
+    certifier_name: $('#cfName').value.trim(), certifier_title: $('#cfTitle').value.trim(),
+    rows: clean.map((r) => ({ name: r.name.trim(), kind: r.kind, country: r.country.trim().toUpperCase(), percent: String(parseFloat(String(r.percent).replace('%', ''))), relationship: r.relationship }))
   };
+  const { data, error } = await P.rpc('supplier_submit_ownership', { p_token: token, p_payload: payload });
+  if (error || !data?.ok) { ul.innerHTML = (data?.errors || [REASONS[data?.reason] || error?.message || 'Could not submit']).map((e) => `<li>${esc(e)}</li>`).join(''); return; }
+  ownershipDone = new Date().toISOString(); render();
 }
 
-async function afterAuth(session) {
-  if (!session) return loginScreen();
-  user = session.user;
-  const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
-  if (error) {
-    $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-md rounded-2xl bg-white border border-red-200 p-8"><h1 class="text-lg font-semibold text-red-700">Could not load your profile</h1><p class="text-sm text-slate-600 mt-2">${esc(error.message)}</p><p class="text-xs text-slate-400 mt-2">Signed in as ${esc(user.email)}</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
-    return;
-  }
-  profile = data;
-  if (!profile || !profile.active) {
-    $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-sm text-center"><h1 class="text-xl font-semibold">Waiting for approval</h1><p class="text-slate-500 mt-2">Your account exists but an admin has not activated it yet.</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
-    return;
-  }
-  route();
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  if (b.dataset.a === 'addRow') { syncRows(); rows.push(blank()); keepRender(); }
+  if (b.dataset.a === 'delRow') { syncRows(); rows.splice(+b.dataset.i, 1); keepRender(); }
+  if (b.dataset.a === 'submitOwn') submitOwnership();
+});
+function keepRender() {
+  const v = ['owName', 'owCountry', 'cfName', 'cfTitle'].map((id) => $('#' + id).value), none = $('#owNone').checked, ok = $('#cfOk').checked;
+  render();
+  ['owName', 'owCountry', 'cfName', 'cfTitle'].forEach((id, i) => { $('#' + id).value = v[i]; }); $('#owNone').checked = none; $('#cfOk').checked = ok;
 }
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'upReq') { const dt = e.target.selectedOptions[0]?.dataset.dt; if (dt && [...$('#upType').options].some((o) => o.value === dt)) $('#upType').value = dt; }
+});
 
-if (!CFG.url || !CFG.key) {
-  $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-md rounded-2xl bg-white border border-slate-200 p-8"><h1 class="text-lg font-semibold">Almost there</h1><p class="text-sm text-slate-600 mt-2">Open this file and paste your Supabase URL and anon key into the <code>CFG</code> block at the top of the script.</p></div></div>`;
-} else {
-  sb = supabase.createClient(CFG.url, CFG.key, { db: { schema: 'compliance' } });
-  sb.auth.onAuthStateChange((_e, session) => setTimeout(() => afterAuth(session), 0));
-}
+// ---- boot --------------------------------------------------------------------------
+(async function () {
+  if (!CFG.url || !CFG.key) { $('#app').innerHTML = card('<p class="text-sm text-slate-600">Paste your Supabase URL and anon key into the <code>CFG</code> block at the top of this file.</p>'); return; }
+  if (!token) return errorScreen('invalid');
+  sb = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  P = sb.schema('compliance_portal');
+  const { data, error } = await P.rpc('supplier_open', { p_token: token });
+  if (error) return errorScreen('');
+  if (!data.ok) return errorScreen(data.reason);
+  info = data; rows = [blank(), blank()]; render();
+})();
 </script>
 </body>
 </html>
