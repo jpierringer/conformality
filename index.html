@@ -7,11 +7,16 @@
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}</style>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#printArea{display:none}
+@page{margin:14mm}
+@media print{body{background:#fff}#app,#toast,dialog{display:none!important}#printArea{display:block!important;color:#111;font-size:10pt}
+#printArea table{width:100%;border-collapse:collapse;font-size:8pt}#printArea th,#printArea td{border-bottom:1px solid #ddd;padding:3px 4px;text-align:left;vertical-align:top}
+#printArea thead{display:table-header-group}#printArea tr{page-break-inside:avoid}#printArea h1{font-size:18pt;margin:0}#printArea h2{font-size:12pt;margin:14px 0 4px}.mono{font-family:ui-monospace,monospace}}</style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 <div id="app"></div>
 <dialog id="dlg" class="rounded-2xl p-0 w-[min(92vw,34rem)] shadow-2xl"><div id="dlgBody" class="p-6"></div></dialog>
+<div id="printArea"></div>
 <div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 hidden rounded-full bg-slate-900 text-white text-sm px-4 py-2 shadow-lg"></div>
 
 <script>
@@ -51,7 +56,7 @@ function shell(inner) {
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
     <div class="font-semibold tracking-tight mr-4">Conformality</div>
-    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}</nav>
+    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}${tab('audit','Audit')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
   <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
@@ -380,7 +385,113 @@ async function showFindings(declId, docId) {
   } catch (e) { toast(e.message || 'Could not load findings'); }
 }
 
+
+// ---- audit trail ---------------------------------------------------------------
+const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'SKU', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Transaction', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
+const AUD_ACT = { insert: 'Created', update: 'Changed', delete: 'Deleted' };
+let auditF = { from: '', to: '', area: '', action: '', q: '' }, auditRows = [];
+const auditLabel = (r) => { const d = r.new_data || r.old_data || {}; return d.title || d.name || d.subject || d.sku || d.matched_name || d.reference || d.email || d.key || d.code || d.file_name || (d.case_no ? '#' + d.case_no : '') || ''; };
+const clip = (v, n = 60) => { const t = v === null || v === undefined ? '-' : typeof v === 'object' ? JSON.stringify(v) : String(v); return t.length > n ? t.slice(0, n) + '…' : t; };
+function auditSummary(r) {
+  const o = r.old_data || {}, n = r.new_data || {};
+  if (r.table_name === 'portal_events') return `${(n.event_type || '').replace(/_/g, ' ')}${n.ip ? ' from ' + n.ip : ''}`;
+  if (r.action === 'update') { const ch = Object.keys(n).filter((k) => k !== 'updated_at' && JSON.stringify(o[k]) !== JSON.stringify(n[k])); return ch.slice(0, 5).map((k) => `${k}: ${clip(o[k])} → ${clip(n[k])}`).join('; ') + (ch.length > 5 ? ` (+${ch.length - 5} more)` : ''); }
+  if (r.action === 'insert') return 'Created' + (n.status ? ` (status ${n.status})` : '');
+  return 'Deleted';
+}
+const auditWho = (r) => r.actor_email || (r.actor ? r.actor : 'System or external visitor');
+const auditWhen = (t) => new Date(t).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+const applyAF = (q) => {
+  if (auditF.from) q = q.gte('at', new Date(auditF.from + 'T00:00:00').toISOString());
+  if (auditF.to) q = q.lte('at', new Date(auditF.to + 'T23:59:59.999').toISOString());
+  if (auditF.area) q = q.eq('table_name', auditF.area);
+  if (auditF.action) q = q.eq('action', auditF.action);
+  return q;
+};
+const auditMatch = (r) => { const q = auditF.q.trim().toLowerCase(); return !q || [auditSummary(r), auditWho(r), auditLabel(r), r.row_id, AUD_AREA[r.table_name] || r.table_name].join(' ').toLowerCase().includes(q); };
+async function loadAuditAll(cap) {
+  let out = [], from = 0, full = false;
+  for (;;) {
+    const { data, error } = await applyAF(sb.from('audit_log').select('*')).order('id', { ascending: true }).range(from, from + 999);
+    if (error) throw error;
+    out = out.concat(data); full = data.length === 1000;
+    if (!full || out.length >= cap) break; from += 1000;
+  }
+  const truncated = full && out.length >= cap; if (out.length > cap) out = out.slice(0, cap);
+  return { rows: out.filter(auditMatch), truncated };
+}
+async function verifyChain() {
+  const box = $('#chainBox'); if (box) box.innerHTML = '<span class="text-slate-500">Verifying integrity…</span>';
+  const { data, error } = await sb.rpc('verify_audit_chain');
+  if (error) { if (box) box.innerHTML = badge('Could not verify', 'amber'); return null; }
+  const v = data[0]; if (box) box.innerHTML = v.is_valid ? badge(`Integrity verified · ${v.rows_checked} entries`, 'green') : badge(`Integrity problem at entry #${v.first_bad_id}`, 'red');
+  return v;
+}
+async function renderAudit() {
+  const inp = 'mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm';
+  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Audit trail</h2><div id="chainBox" class="ml-auto text-sm"></div></div>
+  <div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
+    <label class="text-sm">From<input id="aFrom" type="date" class="${inp}"></label><label class="text-sm">To<input id="aTo" type="date" class="${inp}"></label>
+    <label class="text-sm">Area<select id="aArea" class="${inp}"><option value="">All areas</option>${Object.entries(AUD_AREA).sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="text-sm">Action<select id="aAct" class="${inp}"><option value="">All</option>${Object.entries(AUD_ACT).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+    <label class="text-sm">Search<input id="aQ" placeholder="User, record, change" class="${inp}"></label></div>
+    <div class="mt-3 flex flex-wrap gap-2">${btn('Apply filters', 'auditApply')}${btn('Export CSV', 'auditCsv', {}, 'ghost')}${btn('Print / save as PDF report', 'auditPrint', {}, 'ghost')}</div></div>
+  <div id="auditList"><p class="text-slate-500">Loading…</p></div>`);
+  $('#aFrom').value = auditF.from; $('#aTo').value = auditF.to; $('#aArea').value = auditF.area; $('#aAct').value = auditF.action; $('#aQ').value = auditF.q;
+  $('#aQ').onkeydown = (e) => { if (e.key === 'Enter') actions.auditApply(); };
+  verifyChain(); loadAuditList();
+}
+async function loadAuditList() {
+  const { data, error, count } = await applyAF(sb.from('audit_log').select('*', { count: 'exact' })).order('id', { ascending: false }).limit(500);
+  const box = $('#auditList'); if (!box) return;
+  if (error) { box.innerHTML = `<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc(error.message)}</div>`; return; }
+  auditRows = data.filter(auditMatch);
+  box.innerHTML = `<p class="text-sm text-slate-500 mb-2">${count} matching entries${count > 500 ? ', showing the latest 500. Narrow the filters or export for the full set.' : ''}${auditF.q ? ` · ${auditRows.length} match the search` : ''}</p>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">#</th><th class="p-3">When</th><th class="p-3">Who</th><th class="p-3">Action</th><th class="p-3">Record</th><th class="p-3">What changed</th><th class="p-3"></th></tr></thead>
+  <tbody class="divide-y divide-slate-100">${auditRows.map((r) => `<tr><td class="p-3 text-slate-400">${r.id}</td><td class="p-3 whitespace-nowrap">${esc(auditWhen(r.at))}</td><td class="p-3">${esc(auditWho(r))}</td><td class="p-3">${badge(AUD_ACT[r.action], r.action === 'delete' ? 'red' : r.action === 'update' ? 'amber' : 'gray')}</td>
+  <td class="p-3"><div class="font-medium">${esc(AUD_AREA[r.table_name] || r.table_name)}</div><div class="text-xs text-slate-400 truncate max-w-[14rem]">${esc(auditLabel(r))}</div></td><td class="p-3 text-slate-600 max-w-md">${esc(auditSummary(r))}</td><td class="p-3 text-right">${btn('Details', 'auditRow', { id: r.id }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No entries match.</td></tr>'}</tbody></table></div>`;
+}
+function readFilters() { auditF = { from: $('#aFrom').value, to: $('#aTo').value, area: $('#aArea').value, action: $('#aAct').value, q: $('#aQ').value }; }
+async function exportAuditCsv() {
+  toast('Preparing export…');
+  try {
+    const { rows, truncated } = await loadAuditAll(100000); const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const head = ['Entry ID', 'Time (UTC)', 'User email', 'User ID', 'Action', 'Area', 'Record ID', 'Summary', 'Old data', 'New data', 'Previous hash', 'Entry hash'];
+    const lines = [head.map(q).join(',')].concat(rows.map((r) => [r.id, new Date(r.at).toISOString(), r.actor_email, r.actor, r.action, AUD_AREA[r.table_name] || r.table_name, r.row_id, auditSummary(r), r.old_data ? JSON.stringify(r.old_data) : '', r.new_data ? JSON.stringify(r.new_data) : '', r.prev_hash, r.row_hash].map(q).join(',')));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' })); a.download = `audit_trail_${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+    toast(`${rows.length} entries exported${truncated ? ' (limit reached; narrow the dates for the rest)' : ''}`);
+  } catch (e) { toast(e.message || 'Export failed'); }
+}
+async function printAuditReport() {
+  toast('Building report…');
+  try {
+    const [{ rows, truncated }, v, cs] = await Promise.all([loadAuditAll(5000), verifyChain(), sb.from('app_settings').select('value').eq('key', 'company_name').maybeSingle()]);
+    const company = typeof cs.data?.value === 'string' ? cs.data.value : '';
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone, now = new Date();
+    const counts = {}; rows.forEach((r) => { const k = (AUD_AREA[r.table_name] || r.table_name) + '|' + r.action; counts[k] = (counts[k] || 0) + 1; });
+    const f = auditF, filt = [f.from && 'from ' + f.from, f.to && 'to ' + f.to, f.area && 'area: ' + (AUD_AREA[f.area] || f.area), f.action && 'action: ' + AUD_ACT[f.action], f.q && 'search: "' + f.q + '"'].filter(Boolean).join(', ') || 'none (all entries)';
+    const last = rows[rows.length - 1];
+    $('#printArea').innerHTML = `<h1>Compliance audit report</h1><div style="margin-top:2px">${esc(company)}</div>
+    <p style="margin:8px 0">Generated ${esc(now.toLocaleString())} (${esc(tz)}) by ${esc(profile?.full_name || user?.email || '')}<br>Filters: ${esc(filt)}<br>Entries in this report: ${rows.length}${truncated ? ' (limited to the first 5,000; export the CSV for the full set)' : ''}${rows.length ? `<br>Entry range: #${rows[0].id} to #${last.id}, ${esc(auditWhen(rows[0].at))} to ${esc(auditWhen(last.at))}` : ''}</p>
+    <h2>Integrity check</h2><p>${v ? (v.is_valid ? `The hash chain was verified when this report was generated: all ${v.rows_checked} entries in the log are intact.` : `<b>The hash chain check failed at entry #${v.first_bad_id}.</b> Entries from that point may have been altered.`) : 'The integrity check could not be completed.'}${last ? `<br>Latest entry in this report: #${last.id}, hash <span class="mono">${esc(last.row_hash)}</span>` : ''}</p>
+    <p style="font-size:8pt;color:#555">Each entry stores a SHA-256 hash of its content and of the entry before it, so any later change to a recorded entry breaks the chain. The log is append-only: entries cannot be edited or deleted through the application. The user shown for an entry comes from the signed-in session; entries made by external visitors through private links or by automated jobs show no user.</p>
+    <h2>Summary by area</h2><table><thead><tr><th>Area</th><th>Created</th><th>Changed</th><th>Deleted</th></tr></thead><tbody>${[...new Set(Object.keys(counts).map((k) => k.split('|')[0]))].sort().map((a) => `<tr><td>${esc(a)}</td><td>${counts[a + '|insert'] || 0}</td><td>${counts[a + '|update'] || 0}</td><td>${counts[a + '|delete'] || 0}</td></tr>`).join('')}</tbody></table>
+    <h2>Entries</h2><table><thead><tr><th>#</th><th>Time</th><th>User</th><th>Action</th><th>Area</th><th>Record</th><th>Details</th><th>Hash</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r.id}</td><td>${esc(auditWhen(r.at))}</td><td>${esc(auditWho(r))}</td><td>${AUD_ACT[r.action]}</td><td>${esc(AUD_AREA[r.table_name] || r.table_name)}</td><td>${esc(auditLabel(r) || r.row_id || '')}</td><td>${esc(auditSummary(r))}</td><td class="mono">${esc(r.row_hash.slice(0, 10))}</td></tr>`).join('')}</tbody></table>`;
+    setTimeout(() => window.print(), 150);
+  } catch (e) { toast(e.message || 'Could not build the report'); }
+}
+
 const actions = {
+  auditApply: () => { readFilters(); loadAuditList(); },
+  auditCsv: () => { readFilters(); exportAuditCsv(); },
+  auditPrint: () => { readFilters(); printAuditReport(); },
+  auditRow: ({ id }) => {
+    const r = auditRows.find((x) => String(x.id) === String(id)); if (!r) return;
+    const pre = (o) => o ? `<pre class="mt-1 max-h-48 overflow-auto rounded bg-slate-50 border border-slate-200 p-2 text-xs">${esc(JSON.stringify(o, null, 2))}</pre>` : '<div class="text-xs text-slate-400">None</div>';
+    modal(`<h3 class="text-lg font-semibold">Entry #${r.id}</h3><div class="mt-2 text-sm text-slate-600">${esc(auditWhen(r.at))} (UTC ${esc(new Date(r.at).toISOString())})<br>${esc(auditWho(r))} · ${esc(AUD_ACT[r.action])} · ${esc(AUD_AREA[r.table_name] || r.table_name)}${r.row_id ? ' · record ' + esc(r.row_id) : ''}</div>
+      <div class="mt-3 text-sm font-medium">Before</div>${pre(r.old_data)}<div class="mt-3 text-sm font-medium">After</div>${pre(r.new_data)}
+      <div class="mt-3 text-xs text-slate-400 font-mono break-all">Previous hash ${esc(r.prev_hash)}<br>Entry hash ${esc(r.row_hash)}</div><div class="mt-4 text-right">${btn('Close', 'close', {}, 'ghost')}</div>`, true);
+  },
   viewDoc: async ({ id }) => {
     const { data: d, error } = await sb.from('documents').select('id,title,doc_type,file_name,storage_path,sha256,status,issued_on,valid_until,source,notes,created_at,party:parties(name)').eq('id', id).single();
     if (error) return toast(error.message);
@@ -591,7 +702,7 @@ document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { con
 document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, review: renderReview })[view](); }
+function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, review: renderReview, audit: renderAudit })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
