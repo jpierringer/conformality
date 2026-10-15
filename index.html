@@ -50,7 +50,7 @@ function shell(inner) {
   const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-    <div class="font-semibold tracking-tight mr-4">Compliance Ledger</div>
+    <div class="font-semibold tracking-tight mr-4">Conformality - Compliance Ledger</div>
     <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
@@ -308,12 +308,13 @@ async function processCmrt(id) {
   const iC = idxs((x) => x.includes('country') && x.startsWith('smelter'))[0] ?? idxs((x) => x.includes('country'))[0] ?? -1;
   const idCols = idxs((x) => x.includes('identification'));
   if (iM < 0 || (iN < 0 && iL < 0) || iN === iM) return modal(`<p class="text-sm">Could not tell which CMRT columns hold the metal and smelter name. Headers found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  const ph = /^(enter|select|please)/i, METALS = ['gold', 'tantalum', 'tin', 'tungsten', 'cobalt', 'mica'], sm = [];
+  const ph = /^(enter|select|please)/i, METALS = ['gold', 'tantalum', 'tin', 'tungsten', 'cobalt', 'mica'], sm = [], seen = new Set();
   for (const r of sr.slice(h + 1)) {
     const metal = String(r[iM] ?? '').toLowerCase().trim(); if (!metal || ph.test(metal)) continue;
     let name = String(iN >= 0 ? r[iN] ?? '' : '').trim(); if (!name || ph.test(name)) name = String(iL >= 0 ? r[iL] ?? '' : '').trim(); if (ph.test(name)) name = '';
     let cid = ''; for (const c of idCols) { const m = String(r[c] ?? '').toUpperCase().match(/CID\d{5,}/); if (m) { cid = m[0]; break; } }
     if (!name && !cid) continue;
+    if (cid) { const k = metal + '|' + cid; if (seen.has(k)) continue; seen.add(k); }
     sm.push({ metal: METALS.find((m) => metal.includes(m)) || 'other', smelter_name: name || null, smelter_country: iC >= 0 ? String(r[iC] ?? '').trim() || null : null, smelter_id: cid || null });
   }
   if (sm.length && sm.filter((x) => (x.smelter_name || '').toLowerCase() === x.metal).length > sm.length / 2) return toast('The smelter names look like metals, so nothing was saved. Please send me this CMRT so I can fix the reading.');
@@ -526,7 +527,7 @@ function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: rend
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
-    <h1 class="text-2xl font-semibold tracking-tight">Conformality - Compliance Ledger</h1><p class="text-sm text-slate-500 mt-1">Sign in with your work account.</p>
+    <h1 class="text-2xl font-semibold tracking-tight">Compliance Ledger</h1><p class="text-sm text-slate-500 mt-1">Sign in with your work account.</p>
     <input id="em" type="email" required autocomplete="username" placeholder="Email" class="mt-6 w-full rounded-lg border border-slate-300 p-2.5">
     <input id="pw" type="password" required autocomplete="current-password" placeholder="Password" class="mt-3 w-full rounded-lg border border-slate-300 p-2.5">
     <p class="text-sm text-red-600 mt-2 min-h-[1.25rem]">${esc(msg)}</p>
