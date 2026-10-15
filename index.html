@@ -95,7 +95,7 @@ async function renderSuppliers() {
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
       <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
       <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
-      <td class="p-3 text-right whitespace-nowrap">${btn('Add contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Send upload link', 'link', { id: s.party_id, name: s.name }, 'ghost')}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="7">No suppliers yet.</td></tr>'}
+      <td class="p-3 text-right whitespace-nowrap">${btn('Add contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="7">No suppliers yet.</td></tr>'}
     </tbody></table></div>`);
 }
 
@@ -203,9 +203,49 @@ const actions = {
     if (error) return ($('#fErr').textContent = error.message);
     closeModal(); toast('Contact added');
   },
+  reqDocs: async ({ id, name }) => {
+    const [c, t] = await Promise.all([
+      sb.from('party_contacts').select('id,name,email').eq('party_id', id).eq('is_active', true),
+      sb.from('document_types').select('code,name').eq('is_active', true).eq('portal_uploadable', true).order('sort_order')]);
+    if (c.error || t.error) return toast((c.error || t.error).message);
+    if (!c.data.length) return modal(`<p>Add a contact for <b>${esc(name)}</b> first, so the request goes to a named person.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    actions.rq = { contacts: c.data, types: t.data };
+    const first = t.data.find((x) => x.code === 'cmrt') || t.data[0];
+    const inpc = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
+    modal(`<h3 class="text-lg font-semibold">Request documents from ${esc(name)}</h3>
+      <label class="block mt-3 text-sm">Send to<select id="rqC" class="${inpc}">${c.data.map((x) => `<option value="${x.id}">${esc(x.name)} (${esc(x.email || 'no email')})</option>`).join('')}</select></label>
+      <label class="block mt-3 text-sm">What do we need?<select id="rqType" class="${inpc}">${t.data.map((x) => `<option value="${esc(x.code)}" ${x.code === first?.code ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label>
+      <label class="block mt-3 text-sm">Subject<input id="rqSub" value="${new Date().getFullYear()} ${esc(first?.name || '')}" class="${inpc}"></label>
+      <label class="block mt-3 text-sm">Extra message (optional)<textarea id="rqMsg" rows="3" class="${inpc}"></textarea></label>
+      <label class="block mt-3 text-sm">Due in (days)<input id="rqDue" type="number" min="1" max="165" value="30" class="${inpc}"></label>
+      <p id="fErr" class="text-xs text-red-600 mt-2 min-h-[1rem]"></p>
+      <p class="text-xs text-slate-400">Creating this logs the request as sent and makes a private upload link tied to it.</p>
+      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create request & link', 'mkReq', { id, name })}</div>`);
+  },
+  mkReq: async ({ id, name }) => {
+    const contact = actions.rq.contacts.find((x) => x.id === $('#rqC').value);
+    const subject = $('#rqSub').value.trim(), msg = $('#rqMsg').value.trim(), days = Math.min(165, Math.max(1, +$('#rqDue').value || 30));
+    if (!subject) return ($('#fErr').textContent = 'Enter a subject.');
+    const due = new Date(Date.now() + days * 864e5).toISOString().slice(0, 10);
+    const r = await sb.from('requests').insert({ party_id: id, contact_id: contact.id, doc_type: $('#rqType').value, subject, message: msg || null, status: 'sent', due_on: due }).select('id').single();
+    if (r.error) return ($('#fErr').textContent = r.error.message);
+    const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: id, p_contact: contact.id, p_request: r.data.id, p_days: days + 14, p_label: subject });
+    if (l.error) return ($('#fErr').textContent = 'The request was logged, but the link failed: ' + l.error.message);
+    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`;
+    const first = (contact.name || '').split(' ')[0] || 'there';
+    const body = `Hello ${first},\n\nAs part of our supplier compliance program we need the following from ${name}: ${subject}.\n${msg ? '\n' + msg + '\n' : ''}\nPlease use this private link to upload it. No account is needed:\n${url}\n\nPlease send it by ${new Date(due).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}. The link expires on ${new Date(l.data.expires_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}.\n\nThank you,\n${profile?.full_name || ''}`;
+    const mailto = `mailto:${encodeURIComponent(contact.email || '')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    modal(`<h3 class="text-lg font-semibold">Request created</h3>
+      <p class="text-sm text-slate-500 mt-1">It is logged as sent and due ${fmt(due)}. Copy the link or open a pre-filled email. The link is shown only now.</p>
+      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
+      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="${esc(mailto)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
+    toast('Request logged as sent');
+  },
   copy: async () => { await navigator.clipboard.writeText($('#lkU').value); toast('Copied'); }
 };
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b && actions[b.dataset.a]) actions[b.dataset.a](b.dataset); });
+document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { const s = $('#rqSub'); if (s && !s.dataset.t) s.value = `${new Date().getFullYear()} ${actions.rq.types.find((x) => x.code === e.target.value)?.name || ''}`; } });
+document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
 
 // ---- boot & auth ---------------------------------------------------------------
 function route() { ({ today: renderToday, suppliers: renderSuppliers, review: renderReview })[view](); }
