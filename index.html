@@ -201,7 +201,11 @@ function loginScreen(msg = '') {
 async function afterAuth(session) {
   if (!session) return loginScreen();
   user = session.user;
-  const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (error) {
+    $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-md rounded-2xl bg-white border border-red-200 p-8"><h1 class="text-lg font-semibold text-red-700">Could not load your profile</h1><p class="text-sm text-slate-600 mt-2">${esc(error.message)}</p><p class="text-xs text-slate-400 mt-2">Signed in as ${esc(user.email)}</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
+    return;
+  }
   profile = data;
   if (!profile || !profile.active) {
     $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-sm text-center"><h1 class="text-xl font-semibold">Waiting for approval</h1><p class="text-slate-500 mt-2">Your account exists but an admin has not activated it yet.</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
