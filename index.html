@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conformality</title>
+<title>Compliance Ledger</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -32,7 +32,7 @@ const badge = (text, tone) => `<span class="inline-flex items-center rounded-ful
 const btn = (label, a, data = {}, tone = 'primary') => `<button data-a="${a}" ${Object.entries(data).map(([k,v])=>`data-${k}="${esc(v)}"`).join(' ')} class="rounded-lg px-3 py-1.5 text-sm font-medium ${({primary:'bg-slate-900 text-white hover:bg-slate-700',ghost:'border border-slate-300 hover:bg-slate-100',danger:'bg-red-600 text-white hover:bg-red-500'})[tone]}">${esc(label)}</button>`;
 
 // ---- dialogs -----------------------------------------------------------------
-function modal(html) { $('#dlgBody').innerHTML = html; if (!$('#dlg').open) $('#dlg').showModal(); }
+function modal(html, wide) { $('#dlgBody').innerHTML = html; $('#dlg').style.width = wide ? 'min(94vw,64rem)' : ''; if (!$('#dlg').open) $('#dlg').showModal(); }
 const closeModal = () => $('#dlg').close();
 function askNote(title, required) {
   return new Promise((resolve) => {
@@ -102,11 +102,15 @@ async function renderSuppliers() {
 
 async function renderReview() {
   loading();
-  const [docs, own] = await Promise.all([
+  const [docs, own, decl] = await Promise.all([
     sb.from('documents').select('id,title,doc_type,issued_on,file_name,storage_path,sha256,created_at,party:parties(name)').eq('status', 'received').order('created_at'),
-    sb.from('ownership_submissions').select('*, party:parties(name)').eq('status', 'pending_review').order('certified_at')
+    sb.from('ownership_submissions').select('*, party:parties(name)').eq('status', 'pending_review').order('certified_at'),
+    sb.from('cmrt_declarations').select('id,document_id,is_complete,smelters:cmrt_smelters(check_status)')
   ]);
-  if (docs.error || own.error) return fail(docs.error || own.error);
+  if (docs.error || own.error || decl.error) return fail(docs.error || own.error || decl.error);
+  const dm = new Map(decl.data.map((x) => [x.document_id, x]));
+  const cmrtLine = (d) => { if (d.doc_type !== 'cmrt') return ''; const x = dm.get(d.id); if (!x) return '<div class="mt-1">' + badge('Smelters not read yet', 'amber') + '</div>'; const f = x.smelters.filter((q) => FLAG.includes(q.check_status) || !q.check_status).length; return '<div class="mt-1 flex gap-2">' + (f ? badge(f + ' smelters need attention', 'red') : badge('No smelter flags', 'green')) + (x.is_complete ? '' : badge('Declaration incomplete', 'amber')) + '</div>'; };
+  const cmrtBtn = (d) => { if (d.doc_type !== 'cmrt') return ''; const x = dm.get(d.id); return x ? btn('Review smelters', 'findings', { id: x.id, doc: d.id }) : btn('Read & check smelters', 'parse', { id: d.id }); };
   const empty = (t) => `<p class="p-6 text-center text-slate-500">${t}</p>`;
   shell(`
   <h2 class="text-xl font-semibold mb-3">Documents to review</h2>
@@ -114,8 +118,8 @@ async function renderReview() {
   ${docs.data.map((d) => `<div class="p-4"><div class="flex flex-wrap items-center gap-3">
       <div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div>
       <div class="text-sm text-slate-500">${esc(d.party?.name || '')} · ${esc(d.doc_type)} · uploaded ${fmt(d.created_at)}</div>
-      <div class="text-xs text-slate-400 font-mono truncate">SHA-256 ${esc(d.sha256.slice(0, 16))}…</div></div>
-      <div class="flex flex-wrap gap-2">${btn('View file', 'file', { path: d.storage_path }, 'ghost')}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
+      <div class="text-xs text-slate-400 font-mono truncate">SHA-256 ${esc(d.sha256.slice(0, 16))}…</div>${cmrtLine(d)}</div>
+      <div class="flex flex-wrap gap-2">${btn('View file', 'file', { path: d.storage_path }, 'ghost')}${cmrtBtn(d)}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
     </div></div>`).join('') || empty('No documents waiting for review.')}
   </div>
   <h2 class="text-xl font-semibold mb-3">Ownership submissions</h2>
@@ -225,7 +229,7 @@ async function renderMinerals() {
   <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-6">${pending.map((d) => `<div class="p-4 flex items-center gap-3"><div class="flex-1"><div class="font-medium">${esc(d.title)}</div><div class="text-sm text-slate-500">${esc(d.party?.name)} · ${esc(d.status.replace('_', ' '))}</div></div>${btn('Read & check smelters', 'parse', { id: d.id })}</div>`).join('') || '<p class="p-6 text-center text-slate-500">Nothing waiting. Uploaded CMRTs appear here.</p>'}</div>
   <h3 class="font-semibold mb-2">Checked declarations</h3>
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Need attention</th><th class="p-3"></th></tr></thead>
-  <tbody class="divide-y divide-slate-100">${decl.data.map((d) => { const f = d.smelters.filter((s) => FLAG.includes(s.check_status) || !s.check_status).length; return `<tr><td class="p-3 font-medium">${esc(d.party?.name)}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${d.reporting_year}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${f ? badge(f + ' to review', 'red') : badge('None', 'green')}</td><td class="p-3 text-right whitespace-nowrap">${btn('View', 'viewDecl', { id: d.id }, 'ghost')} ${btn('Re-check', 'recheck', { id: d.id }, 'ghost')} ${btn('Re-read file', 'reread', { id: d.id, doc: d.document_id }, 'ghost')}</td></tr>`; }).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No declarations checked yet.</td></tr>'}</tbody></table></div>`);
+  <tbody class="divide-y divide-slate-100">${decl.data.map((d) => { const f = d.smelters.filter((s) => FLAG.includes(s.check_status) || !s.check_status).length; return `<tr><td class="p-3 font-medium">${esc(d.party?.name)}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${d.reporting_year}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${f ? badge(f + ' to review', 'red') : badge('None', 'green')}</td><td class="p-3 text-right whitespace-nowrap">${btn('Findings', 'findings', { id: d.id, doc: d.document_id })} ${btn('View', 'viewDecl', { id: d.id }, 'ghost')} ${btn('Re-check', 'recheck', { id: d.id }, 'ghost')} ${btn('Re-read file', 'reread', { id: d.id, doc: d.document_id }, 'ghost')}</td></tr>`; }).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No declarations checked yet.</td></tr>'}</tbody></table></div>`);
   $('#rmapFile').onchange = (e) => importRmap(e.target.files[0]);
 }
 
@@ -329,10 +333,59 @@ async function processCmrt(id) {
   for (let i = 0; i < sm.length; i += 200) { const r = await sb.from('cmrt_smelters').insert(sm.slice(i, i + 200).map((x) => ({ ...x, declaration_id: dc.data.id }))); if (r.error) return toast(r.error.message); }
   const c = await sb.rpc('check_declaration_smelters', { p_declaration: dc.data.id });
   toast(c.error ? 'Saved, but: ' + c.error.message : `${c.data[0].smelters_checked} smelters checked, ${c.data[0].smelters_flagged} need attention`);
-  renderMinerals();
+  route();
+}
+
+
+async function fetchAll(make) {
+  let out = [], from = 0;
+  for (;;) { const { data, error } = await make(from, from + 999); if (error) throw error; out = out.concat(data); if (data.length < 1000) break; from += 1000; }
+  return out;
+}
+let lastFindings = null;
+async function showFindings(declId, docId) {
+  toast('Loading findings…');
+  try {
+    const [dRes, docRes, sm, ref] = await Promise.all([
+      sb.from('cmrt_declarations').select('reporting_year,declaration_scope,is_complete,completeness_notes,party:parties(name)').eq('id', declId).single(),
+      docId ? sb.from('documents').select('status').eq('id', docId).single() : Promise.resolve({ data: null }),
+      fetchAll((a, b) => sb.from('cmrt_smelters').select('metal,smelter_name,smelter_country,smelter_id,check_status').eq('declaration_id', declId).order('id').range(a, b)),
+      fetchAll((a, b) => sb.from('v_rmap_current').select('cid,metal,name,country,status').order('id').range(a, b))]);
+    if (dRes.error) throw dRes.error;
+    const d = dRes.data, key = (m, c) => String(m || '').toLowerCase() + '|' + String(c || '').trim().toUpperCase();
+    const refMap = new Map(); for (const r of ref) { const k = key(r.metal, r.cid); if (!refMap.has(k)) refMap.set(k, r); }
+    const declKeys = new Set(sm.filter((x) => x.smelter_id).map((x) => key(x.metal, x.smelter_id)));
+    const issues = sm.filter((x) => FLAG.includes(x.check_status) || !x.check_status);
+    const missing = [...refMap.entries()].filter(([k]) => !declKeys.has(k)).map(([, r]) => r);
+    const matched = [...declKeys].filter((k) => refMap.has(k)).length, pct = refMap.size ? Math.round((100 * matched) / refMap.size) : 0;
+    lastFindings = { name: `${d.party?.name || 'supplier'}_${d.reporting_year}_CMRT_findings`, issues, missing };
+    const stat = (l, v, t) => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs text-slate-500">${l}</div><div class="text-2xl font-semibold ${t || ''}">${v}</div></div>`;
+    const canDecide = docId && docRes.data?.status === 'received';
+    modal(`<h3 class="text-lg font-semibold">${esc(d.party?.name)} · ${d.reporting_year} CMRT · smelter findings</h3>
+    <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">${stat('Declared (unique smelters)', declKeys.size + issues.filter((x) => !x.smelter_id).length)}${stat('Need attention', issues.length, issues.length ? 'text-red-600' : 'text-emerald-600')}${stat('On list, not declared', missing.length)}${stat('Share of list declared', pct + '%', pct >= 80 ? 'text-red-600' : '')}</div>
+    ${pct >= 80 && refMap.size ? `<div class="mt-3 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">This declaration covers ${pct}% of the reference list. A genuine declaration normally names only the smelters in the supplier's own supply chain. Ask the supplier to confirm or correct it.</div>` : ''}
+    ${d.is_complete ? '' : `<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">${esc(d.completeness_notes || 'Some declaration fields could not be read.')}</div>`}
+    <div class="max-h-[52vh] overflow-auto mt-4 pr-1">
+    <h4 class="font-semibold">Declared by the supplier but needing attention (${issues.length})</h4>
+    <p class="text-xs text-slate-500">Not on the reference list, no smelter ID, or not conformant.</p>
+    <table class="w-full text-sm mt-2"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter as declared</th><th>Country</th><th>ID</th><th>Issue</th></tr></thead><tbody>${issues.map((x) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(x.metal)}</td><td>${esc(x.smelter_name || '')}</td><td>${esc(x.smelter_country || '')}</td><td class="font-mono text-xs">${esc(x.smelter_id || '')}</td><td>${badge(SM_LABEL[x.check_status] || 'Not checked', 'red')}</td></tr>`).join('') || '<tr><td colspan="5" class="py-3 text-slate-500">None.</td></tr>'}</tbody></table>
+    <div class="flex items-center gap-3 mt-6"><h4 class="font-semibold">On the reference list but not declared (${missing.length})</h4><input id="fMiss" placeholder="Filter" class="ml-auto rounded-lg border border-slate-300 p-1.5 text-sm w-40"></div>
+    <p class="text-xs text-slate-500">Smelters RMI lists that this supplier did not name. Not a problem on its own: a supplier only needs to name the smelters it uses.</p>
+    <table class="w-full text-sm mt-2"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter</th><th>Country</th><th>ID</th></tr></thead><tbody id="missBody">${missing.map((x) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(x.metal)}</td><td>${esc(x.name)}</td><td>${esc(x.country || '')}</td><td class="font-mono text-xs">${esc(x.cid)}</td></tr>`).join('') || '<tr><td colspan="4" class="py-3 text-slate-500">None.</td></tr>'}</tbody></table></div>
+    <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Download CSV', 'dlFindings', {}, 'ghost')}${canDecide ? btn('Reject', 'doc', { id: docId, s: 'rejected' }, 'danger') + btn('Accept with gaps', 'doc', { id: docId, s: 'accepted_with_gaps' }, 'ghost') + btn('Accept', 'doc', { id: docId, s: 'accepted' }) : ''}${btn('Close', 'close', {}, 'ghost')}</div>`, true);
+    $('#fMiss').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#missBody tr').forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
+  } catch (e) { toast(e.message || 'Could not load findings'); }
 }
 
 const actions = {
+  findings: ({ id, doc }) => showFindings(id, doc),
+  dlFindings: () => {
+    if (!lastFindings) return; const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const lines = [['Section', 'Metal', 'Smelter', 'Country', 'ID', 'Issue'].map(q).join(',')]
+      .concat(lastFindings.issues.map((x) => ['Declared - needs attention', x.metal, x.smelter_name, x.smelter_country, x.smelter_id, SM_LABEL[x.check_status] || 'Not checked'].map(q).join(',')))
+      .concat(lastFindings.missing.map((x) => ['On list - not declared', x.metal, x.name, x.country, x.cid, ''].map(q).join(',')));
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv' })); a.download = lastFindings.name.replace(/[^A-Za-z0-9_-]+/g, '_') + '.csv'; a.click();
+  },
   reread: async ({ id, doc }) => {
     const note = await askNote('Re-read this CMRT from the original file? The previous reading is replaced, and stays in the audit log.', false); if (note === null) return;
     const r = await sb.rpc('reset_cmrt_declaration', { p_declaration: id }); if (r.error) return toast(r.error.message);
