@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Confomality - Compliance Ledge</title>
+<title>Conformality</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -50,7 +50,7 @@ function shell(inner) {
   const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-    <div class="font-semibold tracking-tight mr-4">Compliance Ledger</div>
+    <div class="font-semibold tracking-tight mr-4">Conformality - Compliance Ledger</div>
     <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
@@ -194,8 +194,8 @@ async function renderRequests() {
 
 // ---- conflict minerals ----------------------------------------------------------
 const FLAG = ['non_conformant', 'other', 'not_listed', 'no_id'];
-const SM_TONE = { conformant: 'green', active: 'amber', non_conformant: 'red', other: 'red', not_listed: 'red', no_id: 'red' };
-const SM_LABEL = { conformant: 'Conformant', active: 'Active (in audit)', non_conformant: 'Non-conformant', other: 'Unrecognised status', not_listed: 'Not on RMAP list', no_id: 'No smelter ID' };
+const SM_TONE = { listed: 'gray', conformant: 'green', active: 'amber', non_conformant: 'red', other: 'red', not_listed: 'red', no_id: 'red' };
+const SM_LABEL = { listed: 'On RMI list, conformance not stated', conformant: 'Conformant', active: 'Active (in audit)', non_conformant: 'Non-conformant', other: 'Unrecognised status', not_listed: 'Not on RMAP list', no_id: 'No smelter ID' };
 const sheetRows = (wb, n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '' });
 const findHeader = (rows, needles) => rows.slice(0, 80).findIndex((r) => needles.every((n) => r.some((c) => String(c).toLowerCase().includes(n))));
 function labelVal(rows, labels) {
@@ -229,25 +229,55 @@ async function renderMinerals() {
   $('#rmapFile').onchange = (e) => importRmap(e.target.files[0]);
 }
 
+function parseCsvText(t) {
+  t = t.replace(/^﻿/, ''); const out = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (q) { if (ch === '"') { if (t[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && t[i + 1] === '\n') i++; row.push(cur); out.push(row); row = []; cur = ''; }
+    else cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); out.push(row); }
+  return out.filter((r) => r.some((c) => String(c).trim() !== ''));
+}
+let pendingRmap = null;
 async function importRmap(file) {
   if (!file) return;
   toast('Reading list…');
-  const buf = await file.arrayBuffer(); let wb, best = null;
-  try { wb = XLSX.read(buf, { type: 'array' }); } catch (e) { return toast('Could not read that file.'); }
-  for (const n of wb.SheetNames) { const rows = sheetRows(wb, n), h = findHeader(rows, ['metal']); if (h >= 0 && (!best || rows.length > best.rows.length)) best = { rows, h }; }
+  const isCsv = /\.csv$/i.test(file.name); let rows, best = null;
+  try {
+    if (isCsv) { const all = parseCsvText(await file.text()); const h = findHeader(all, ['metal']); if (h >= 0) best = { rows: all, h }; }
+    else { const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); for (const n of wb.SheetNames) { const r = sheetRows(wb, n), h = findHeader(r, ['metal']); if (h >= 0 && (!best || r.length > best.rows.length)) best = { rows: r, h }; } }
+  } catch (e) { return toast('Could not read that file.'); }
   if (!best) return toast('Could not find a header row with a "Metal" column.');
-  const hdr = best.rows[best.h].map((x) => String(x).toLowerCase()), ix = (f) => hdr.findIndex(f);
-  const iI = ix((h) => /identification|facility id|smelter id|^cid/.test(h)), iM = ix((h) => h.includes('metal')), iN = ix((h) => /(smelter|facility).*name|^name$/.test(h)), iC = ix((h) => h.includes('country')), iS = ix((h) => /status|conform|assessment/.test(h));
-  if (iI < 0 || iN < 0) return modal(`<p class="text-sm">Could not tell which columns hold the smelter ID and name. Columns found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  const hdr = best.rows[best.h].map((x) => String(x).toLowerCase().replace(/^﻿/, '').trim());
+  const first = (...tests) => { for (const t of tests) { const i = hdr.findIndex((h) => (t instanceof RegExp ? t.test(h) : h === t)); if (i >= 0) return i; } return -1; };
+  const iM = first('metal', /metal/), iI = first('smelter id', 'smelter identification number', /identification|facility id|smelter id|^cid/);
+  const iN = first('standard smelter name', 'smelter name', 'facility name', /standard.*name/, /(smelter|facility).*name/, 'smelter reference');
+  const iC = first('country', /country/), iS = first(/conformance|conformant|assessment status|rmap status|^status$/);
+  if (iI < 0 || iN < 0 || iN === iM) return modal(`<p class="text-sm">Could not tell which columns hold the smelter ID and name. Columns found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
   const map = new Map();
   for (const r of best.rows.slice(best.h + 1)) {
-    const cid = String(r[iI]).trim(), name = String(r[iN]).trim(); if (!cid || !name) continue;
-    const metal = iM >= 0 ? String(r[iM]).trim() : null; map.set(cid + '|' + metal, { cid, metal, name, country: iC >= 0 ? String(r[iC]).trim() || null : null, status: iS >= 0 ? String(r[iS]).trim() || null : null });
+    const cid = String(r[iI] ?? '').trim(), name = String(r[iN] ?? '').trim(); if (!cid || !name) continue;
+    const metal = iM >= 0 ? String(r[iM] ?? '').trim() : null;
+    map.set(cid + '|' + metal, { cid, metal, name, country: iC >= 0 ? String(r[iC] ?? '').trim() || null : null, status: iS >= 0 ? String(r[iS] ?? '').trim() || null : 'Listed (conformance not stated)' });
   }
-  const rows = [...map.values()]; if (!rows.length) return toast('No smelters found in that file.');
+  rows = [...map.values()]; if (!rows.length) return toast('No smelters found in that file.');
+  if (rows.filter((x) => x.name.toLowerCase() === (x.metal || '').toLowerCase()).length > rows.length / 2) return toast('Names look the same as metals, so nothing was saved. Send me the file and I will fix the mapping.');
+  pendingRmap = { file, rows, hasStatus: iS >= 0 };
+  modal(`<h3 class="text-lg font-semibold">Check before loading</h3>
+    <p class="text-sm text-slate-600 mt-1">${rows.length} smelters found. Name comes from "${esc(hdr[iN])}", ID from "${esc(hdr[iI])}"${iS >= 0 ? `, status from "${esc(hdr[iS])}"` : ''}.</p>
+    ${iS >= 0 ? '' : '<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">This file has no conformance status column. Smelters will show as "On RMI list, conformance not stated", so the check confirms a smelter is a known one but not that it is conformant. For a conformance check, load the RMAP Conformant Smelters list.</div>'}
+    <div class="mt-3 overflow-x-auto"><table class="w-full text-xs"><thead class="text-left text-slate-500"><tr><th>Metal</th><th>Smelter name</th><th>Country</th><th>ID</th></tr></thead><tbody>${rows.slice(0, 5).map((x) => `<tr class="border-t border-slate-100"><td class="py-1">${esc(x.metal)}</td><td>${esc(x.name)}</td><td>${esc(x.country)}</td><td class="font-mono">${esc(x.cid)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Load ' + rows.length + ' smelters', 'commitRmap')}</div>`);
+}
+async function commitRmap() {
+  const { file, rows } = pendingRmap || {}; if (!rows) return; closeModal(); toast('Loading…');
   const path = `reference/rmap/${crypto.randomUUID()}/${file.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
   const up = await sb.storage.from('compliance-docs').upload(path, file, { upsert: false });
-  const ld = await sb.from('reference_list_loads').insert({ list_code: 'RMAP', status: 'loading', file_sha256: await sha256(buf), storage_path: up.error ? null : path, notes: file.name, row_count: rows.length }).select('id').single();
+  const ld = await sb.from('reference_list_loads').insert({ list_code: 'RMAP', status: 'loading', file_sha256: await sha256(await file.arrayBuffer()), storage_path: up.error ? null : path, notes: file.name, row_count: rows.length }).select('id').single();
   if (ld.error) return toast(ld.error.message);
   for (let i = 0; i < rows.length; i += 500) {
     const r = await sb.from('rmap_smelters').insert(rows.slice(i, i + 500).map((x) => ({ ...x, load_id: ld.data.id })));
@@ -256,7 +286,7 @@ async function importRmap(file) {
   await sb.from('reference_list_loads').update({ status: 'complete' }).eq('id', ld.data.id);
   const decl = await sb.from('cmrt_declarations').select('id');
   for (const d of decl.data || []) await sb.rpc('check_declaration_smelters', { p_declaration: d.id });
-  toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
+  pendingRmap = null; toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
 }
 
 async function processCmrt(id) {
@@ -293,6 +323,7 @@ async function processCmrt(id) {
 }
 
 const actions = {
+  commitRmap: () => commitRmap(),
   parse: ({ id }) => processCmrt(id),
   recheck: async ({ id }) => { const c = await sb.rpc('check_declaration_smelters', { p_declaration: id }); toast(c.error ? c.error.message : `${c.data[0].smelters_flagged} need attention`); renderMinerals(); },
   viewDecl: async ({ id }) => {
