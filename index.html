@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Compliance Ledger</title>
+<title>Conformality</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -50,7 +50,7 @@ function shell(inner) {
   const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-    <div class="font-semibold tracking-tight mr-4">Conformality - Compliance Ledger</div>
+    <div class="font-semibold tracking-tight mr-4">Conformality</div>
     <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
@@ -100,6 +100,7 @@ async function renderSuppliers() {
     </tbody></table></div>`);
 }
 
+const isCmrt = (d) => d.doc_type === 'cmrt' || (/cmrt/i.test((d.file_name || '') + ' ' + (d.title || '')) && /\.xlsx?$/i.test(d.file_name || ''));
 async function renderReview() {
   loading();
   const [docs, own, decl] = await Promise.all([
@@ -109,8 +110,8 @@ async function renderReview() {
   ]);
   if (docs.error || own.error || decl.error) return fail(docs.error || own.error || decl.error);
   const dm = new Map(decl.data.map((x) => [x.document_id, x]));
-  const cmrtLine = (d) => { if (d.doc_type !== 'cmrt') return ''; const x = dm.get(d.id); if (!x) return '<div class="mt-1">' + badge('Smelters not read yet', 'amber') + '</div>'; const f = x.smelters.filter((q) => FLAG.includes(q.check_status) || !q.check_status).length; return '<div class="mt-1 flex gap-2">' + (f ? badge(f + ' smelters need attention', 'red') : badge('No smelter flags', 'green')) + (x.is_complete ? '' : badge('Declaration incomplete', 'amber')) + '</div>'; };
-  const cmrtBtn = (d) => { if (d.doc_type !== 'cmrt') return ''; const x = dm.get(d.id); return x ? btn('Review smelters', 'findings', { id: x.id, doc: d.id }) : btn('Read & check smelters', 'parse', { id: d.id }); };
+  const cmrtLine = (d) => { if (!isCmrt(d)) return ''; const x = dm.get(d.id); if (!x) return '<div class="mt-1">' + badge('Smelters not read yet', 'amber') + '</div>'; const f = x.smelters.filter((q) => FLAG.includes(q.check_status) || !q.check_status).length; return '<div class="mt-1 flex gap-2">' + (f ? badge(f + ' smelters need attention', 'red') : badge('No smelter flags', 'green')) + (x.is_complete ? '' : badge('Declaration incomplete', 'amber')) + '</div>'; };
+  const cmrtBtn = (d) => btn('View', 'viewDoc', { id: d.id });
   const empty = (t) => `<p class="p-6 text-center text-slate-500">${t}</p>`;
   shell(`
   <h2 class="text-xl font-semibold mb-3">Documents to review</h2>
@@ -119,7 +120,7 @@ async function renderReview() {
       <div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div>
       <div class="text-sm text-slate-500">${esc(d.party?.name || '')} · ${esc(d.doc_type)} · uploaded ${fmt(d.created_at)}</div>
       <div class="text-xs text-slate-400 font-mono truncate">SHA-256 ${esc(d.sha256.slice(0, 16))}…</div>${cmrtLine(d)}</div>
-      <div class="flex flex-wrap gap-2">${btn('View file', 'file', { path: d.storage_path }, 'ghost')}${cmrtBtn(d)}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
+      <div class="flex flex-wrap gap-2">${cmrtBtn(d)}${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${btn('Accept', 'doc', { id: d.id, s: 'accepted' })}${btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost')}${btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger')}</div>
     </div></div>`).join('') || empty('No documents waiting for review.')}
   </div>
   <h2 class="text-xl font-semibold mb-3">Ownership submissions</h2>
@@ -293,7 +294,7 @@ async function commitRmap() {
   pendingRmap = null; toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
 }
 
-async function processCmrt(id) {
+async function processCmrt(id, openAfter) {
   toast('Reading CMRT…');
   const { data: d, error } = await sb.from('documents').select('id,party_id,storage_path,issued_on,reporting_year').eq('id', id).single();
   if (error) return toast(error.message);
@@ -316,6 +317,7 @@ async function processCmrt(id) {
   for (const r of sr.slice(h + 1)) {
     const metal = String(r[iM] ?? '').toLowerCase().trim(); if (!metal || ph.test(metal)) continue;
     let name = String(iN >= 0 ? r[iN] ?? '' : '').trim(); if (!name || ph.test(name)) name = String(iL >= 0 ? r[iL] ?? '' : '').trim(); if (ph.test(name)) name = '';
+    { const lk = String(iL >= 0 ? r[iL] ?? '' : '').trim(); if (/^unknown$/i.test(name) && lk && !ph.test(lk) && !/^unknown$/i.test(lk)) name = lk; }
     let cid = ''; for (const c of idCols) { const m = String(r[c] ?? '').toUpperCase().match(/CID\d{5,}/); if (m) { cid = m[0]; break; } }
     if (!name && !cid) continue;
     if (cid) { const k = metal + '|' + cid; if (seen.has(k)) continue; seen.add(k); }
@@ -334,6 +336,7 @@ async function processCmrt(id) {
   const c = await sb.rpc('check_declaration_smelters', { p_declaration: dc.data.id });
   toast(c.error ? 'Saved, but: ' + c.error.message : `${c.data[0].smelters_checked} smelters checked, ${c.data[0].smelters_flagged} need attention`);
   route();
+  if (openAfter) showFindings(dc.data.id, id);
 }
 
 
@@ -378,6 +381,18 @@ async function showFindings(declId, docId) {
 }
 
 const actions = {
+  viewDoc: async ({ id }) => {
+    const { data: d, error } = await sb.from('documents').select('id,title,doc_type,file_name,storage_path,sha256,status,issued_on,valid_until,source,notes,created_at,party:parties(name)').eq('id', id).single();
+    if (error) return toast(error.message);
+    if (isCmrt(d)) {
+      const x = await sb.from('cmrt_declarations').select('id').eq('document_id', id).maybeSingle();
+      if (x.error) return toast(x.error.message);
+      return x.data ? showFindings(x.data.id, id) : processCmrt(id, true);
+    }
+    const row = (l, v) => `<div class="flex gap-3 py-1.5 border-t border-slate-100 text-sm"><div class="w-32 text-slate-500 shrink-0">${l}</div><div class="min-w-0 break-words">${v}</div></div>`;
+    modal(`<h3 class="text-lg font-semibold">${esc(d.title)}</h3><div class="mt-3">${row('Supplier', esc(d.party?.name || ''))}${row('Type', esc(d.doc_type))}${row('File', esc(d.file_name))}${row('Uploaded', fmt(d.created_at))}${row('Date on document', fmt(d.issued_on))}${row('Valid until', fmt(d.valid_until))}${row('Source', esc((d.source || '').replace('_', ' ')))}${row('Notes', esc(d.notes || ''))}${row('SHA-256', '<span class="font-mono text-xs">' + esc(d.sha256) + '</span>')}</div>
+      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${d.status === 'received' ? btn('Reject', 'doc', { id, s: 'rejected' }, 'danger') + btn('Accept with gaps', 'doc', { id, s: 'accepted_with_gaps' }, 'ghost') + btn('Accept', 'doc', { id, s: 'accepted' }) : ''}${btn('Close', 'close', {}, 'ghost')}</div>`);
+  },
   findings: ({ id, doc }) => showFindings(id, doc),
   dlFindings: () => {
     if (!lastFindings) return; const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
