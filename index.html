@@ -6,6 +6,7 @@
 <title>Compliance Ledger</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}</style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
@@ -16,8 +17,8 @@
 <script>
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
-  url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
-  key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S',                    // anon public key
+  url: '',                    // https://xxxx.supabase.co
+  key: '',                    // anon public key
   portalUrl: './portal.html'  // where the supplier portal page will live
 };
 // -------------------------------------------------------------------------------
@@ -50,7 +51,7 @@ function shell(inner) {
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
     <div class="font-semibold tracking-tight mr-4">Compliance Ledger</div>
-    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('review','Review')}</nav>
+    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
   <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
@@ -61,7 +62,7 @@ const fail = (e) => shell(`<div class="rounded-xl bg-red-50 border border-red-20
 // ---- views -------------------------------------------------------------------
 const ORDER = { high: 0, medium: 1, low: 2 };
 const TONE = { high: 'red', medium: 'amber', low: 'gray' };
-const ROUTE = { documents: 'review', ownership_submissions: 'review', parties: 'suppliers', requests: 'suppliers' };
+const ROUTE = { documents: 'review', ownership_submissions: 'review', parties: 'suppliers', requests: 'requests' };
 
 async function renderToday() {
   loading();
@@ -77,7 +78,7 @@ async function renderToday() {
       <div class="p-4 flex items-start gap-3">
         <div class="pt-0.5">${badge(w.severity, TONE[w.severity])}</div>
         <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
+        ${w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
       </div>`).join('') : '<p class="p-8 text-center text-slate-500">Nothing needs attention. Nice.</p>'}
     </div>`);
 }
@@ -131,7 +132,235 @@ async function renderReview() {
 }
 
 // ---- actions -----------------------------------------------------------------
+const cmrtBadge = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
+function splitCsv(line) {
+  const out = []; let cur = '', q = false;
+  for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; } else cur += ch; }
+  out.push(cur.trim()); return out;
+}
+
+async function renderSkus() {
+  loading();
+  const { data, error } = await sb.from('v_sku_trace').select('*').order('sku');
+  if (error) return fail(error);
+  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">SKUs</h2><span class="text-sm text-slate-500">${data.length} total</span>
+    <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64">
+    <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add SKU', 'addSku')}</div>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
+  <tbody id="skuBody" class="divide-y divide-slate-100">${data.map((s) => `<tr><td class="p-3 font-medium">${esc(s.sku)}</td><td class="p-3">${esc(s.description || '')}</td><td class="p-3">${esc(s.supplier_name)}</td><td class="p-3">${cmrtBadge(s)}</td><td class="p-3">${fmt(s.valid_until)}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No SKUs yet. Add one, or import a CSV with columns: sku, description, supplier.</td></tr>'}</tbody></table></div>`);
+  $('#skuQ').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#skuBody tr').forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
+  $('#skuCsv').onchange = (e) => importSkus(e.target.files[0]);
+}
+
+async function importSkus(file) {
+  if (!file) return;
+  const { data: sup, error } = await sb.from('parties').select('id,name').contains('roles', ['supplier']);
+  if (error) return toast(error.message);
+  const map = new Map(sup.map((s) => [s.name.trim().toLowerCase(), s.id]));
+  const lines = (await file.text()).split(/\r?\n/).filter((l) => l.trim());
+  const head = splitCsv(lines[0] || '').map((h) => h.toLowerCase().replace(/[^a-z]/g, ''));
+  const ix = (keys) => head.findIndex((h) => keys.includes(h));
+  const iS = ix(['sku', 'partnumber', 'item']), iD = ix(['description', 'desc']), iP = ix(['supplier', 'vendor', 'manufacturer']), iN = ix(['supplierpartnumber', 'supplierpn', 'mpn']);
+  if (iS < 0 || iP < 0) return toast('The CSV needs "sku" and "supplier" columns.');
+  const rows = [], bad = new Set();
+  for (const l of lines.slice(1)) {
+    const c = splitCsv(l), sku = (c[iS] || '').trim(); if (!sku) continue;
+    const sid = map.get((c[iP] || '').trim().toLowerCase());
+    if (!sid) { bad.add(c[iP] || '(blank)'); continue; }
+    rows.push({ sku, description: iD >= 0 ? c[iD] || null : null, supplier_id: sid, supplier_part_number: iN >= 0 ? c[iN] || null : null });
+  }
+  let done = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const r = await sb.from('skus').upsert(rows.slice(i, i + 100), { onConflict: 'sku' });
+    if (r.error) return modal(`<p class="text-red-600 text-sm">${esc(r.error.message)}</p><p class="text-sm mt-2">${done} SKUs were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    done += Math.min(100, rows.length - i);
+  }
+  if (bad.size) modal(`<h3 class="text-lg font-semibold">${done} SKUs saved</h3><p class="text-sm text-slate-600 mt-2">These supplier names did not match a supplier exactly, so their rows were skipped. Add the supplier or fix the spelling and import again:</p><ul class="mt-2 text-sm list-disc pl-5">${[...bad].map((b) => `<li>${esc(b)}</li>`).join('')}</ul><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  else toast(`${done} SKUs saved`);
+  renderSkus();
+}
+
+async function renderRequests() {
+  loading();
+  const { data, error } = await sb.from('requests').select('id,subject,status,due_on,last_reminder_on,party:parties(name),contact:party_contacts(name,email)').in('status', ['sent', 'reminded', 'received']).order('due_on', { nullsFirst: false });
+  if (error) return fail(error);
+  const today = new Date().toISOString().slice(0, 10);
+  const st = (r) => r.status === 'received' ? badge('Received', 'green') : r.due_on && r.due_on < today ? badge('Overdue', 'red') : badge(r.status === 'reminded' ? 'Reminded' : 'Sent', 'amber');
+  shell(`<h2 class="text-xl font-semibold mb-4">Open requests</h2>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Request</th><th class="p-3">Status</th><th class="p-3">Due</th><th class="p-3">Last reminder</th><th class="p-3"></th></tr></thead>
+  <tbody class="divide-y divide-slate-100">${data.map((r) => `<tr><td class="p-3"><div class="font-medium">${esc(r.subject)}</div><div class="text-xs text-slate-400">${esc(r.party?.name)} · ${esc(r.contact?.name || 'no contact')}</div></td><td class="p-3">${st(r)}</td><td class="p-3">${fmt(r.due_on)}</td><td class="p-3">${fmt(r.last_reminder_on)}</td>
+  <td class="p-3 text-right whitespace-nowrap">${r.status !== 'received' ? btn('Remind', 'remind', { id: r.id }, 'ghost') + ' ' : ''}${btn('Close', 'closeReq', { id: r.id })}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No open requests.</td></tr>'}</tbody></table></div>`);
+}
+
+// ---- conflict minerals ----------------------------------------------------------
+const FLAG = ['non_conformant', 'other', 'not_listed', 'no_id'];
+const SM_TONE = { conformant: 'green', active: 'amber', non_conformant: 'red', other: 'red', not_listed: 'red', no_id: 'red' };
+const SM_LABEL = { conformant: 'Conformant', active: 'Active (in audit)', non_conformant: 'Non-conformant', other: 'Unrecognised status', not_listed: 'Not on RMAP list', no_id: 'No smelter ID' };
+const sheetRows = (wb, n) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '' });
+const findHeader = (rows, needles) => rows.slice(0, 80).findIndex((r) => needles.every((n) => r.some((c) => String(c).toLowerCase().includes(n))));
+function labelVal(rows, labels) {
+  for (const r of rows) for (let i = 0; i < r.length; i++) {
+    const c = String(r[i]).toLowerCase();
+    if (labels.some((l) => c.includes(l))) for (let j = i + 1; j < r.length; j++) if (String(r[j]).trim() !== '') return r[j];
+  }
+  return '';
+}
+const asDate = (v) => typeof v === 'number' ? new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10) : (isNaN(Date.parse(v)) ? null : new Date(v).toISOString().slice(0, 10));
+const sha256 = async (buf) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((x) => x.toString(16).padStart(2, '0')).join('');
+
+async function renderMinerals() {
+  loading();
+  const [ld, docs, decl] = await Promise.all([
+    sb.from('reference_list_loads').select('loaded_at,row_count,notes').eq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1),
+    sb.from('documents').select('id,title,issued_on,status,party:parties(name)').eq('doc_type', 'cmrt').in('status', ['received', 'accepted', 'accepted_with_gaps']),
+    sb.from('cmrt_declarations').select('id,document_id,reporting_year,declaration_scope,is_complete,completeness_notes,party:parties(name),smelters:cmrt_smelters(check_status)').order('parsed_at', { ascending: false })]);
+  if (ld.error || docs.error || decl.error) return fail(ld.error || docs.error || decl.error);
+  const done = new Set(decl.data.map((d) => d.document_id)), pending = docs.data.filter((d) => !done.has(d.id)), last = ld.data[0];
+  shell(`<h2 class="text-xl font-semibold mb-4">Conflict minerals</h2>
+  <div class="rounded-xl bg-white border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
+    <div class="flex-1 min-w-[14rem]"><div class="font-medium">RMAP smelter list</div>
+    <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${last.row_count} smelters` : 'Not loaded yet. Download the latest Smelter Reference List from RMI and load it here.'}</div></div>
+    <label class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${last ? 'Load newer list' : 'Load smelter list'}<input id="rmapFile" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div>
+  <h3 class="font-semibold mb-2">CMRTs waiting to be read</h3>
+  <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-6">${pending.map((d) => `<div class="p-4 flex items-center gap-3"><div class="flex-1"><div class="font-medium">${esc(d.title)}</div><div class="text-sm text-slate-500">${esc(d.party?.name)} · ${esc(d.status.replace('_', ' '))}</div></div>${btn('Read & check smelters', 'parse', { id: d.id })}</div>`).join('') || '<p class="p-6 text-center text-slate-500">Nothing waiting. Uploaded CMRTs appear here.</p>'}</div>
+  <h3 class="font-semibold mb-2">Checked declarations</h3>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Need attention</th><th class="p-3"></th></tr></thead>
+  <tbody class="divide-y divide-slate-100">${decl.data.map((d) => { const f = d.smelters.filter((s) => FLAG.includes(s.check_status) || !s.check_status).length; return `<tr><td class="p-3 font-medium">${esc(d.party?.name)}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${d.reporting_year}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${f ? badge(f + ' to review', 'red') : badge('None', 'green')}</td><td class="p-3 text-right whitespace-nowrap">${btn('View', 'viewDecl', { id: d.id }, 'ghost')} ${btn('Re-check', 'recheck', { id: d.id }, 'ghost')}</td></tr>`; }).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No declarations checked yet.</td></tr>'}</tbody></table></div>`);
+  $('#rmapFile').onchange = (e) => importRmap(e.target.files[0]);
+}
+
+async function importRmap(file) {
+  if (!file) return;
+  toast('Reading list…');
+  const buf = await file.arrayBuffer(); let wb, best = null;
+  try { wb = XLSX.read(buf, { type: 'array' }); } catch (e) { return toast('Could not read that file.'); }
+  for (const n of wb.SheetNames) { const rows = sheetRows(wb, n), h = findHeader(rows, ['metal']); if (h >= 0 && (!best || rows.length > best.rows.length)) best = { rows, h }; }
+  if (!best) return toast('Could not find a header row with a "Metal" column.');
+  const hdr = best.rows[best.h].map((x) => String(x).toLowerCase()), ix = (f) => hdr.findIndex(f);
+  const iI = ix((h) => /identification|facility id|smelter id|^cid/.test(h)), iM = ix((h) => h.includes('metal')), iN = ix((h) => /(smelter|facility).*name|^name$/.test(h)), iC = ix((h) => h.includes('country')), iS = ix((h) => /status|conform|assessment/.test(h));
+  if (iI < 0 || iN < 0) return modal(`<p class="text-sm">Could not tell which columns hold the smelter ID and name. Columns found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  const map = new Map();
+  for (const r of best.rows.slice(best.h + 1)) {
+    const cid = String(r[iI]).trim(), name = String(r[iN]).trim(); if (!cid || !name) continue;
+    const metal = iM >= 0 ? String(r[iM]).trim() : null; map.set(cid + '|' + metal, { cid, metal, name, country: iC >= 0 ? String(r[iC]).trim() || null : null, status: iS >= 0 ? String(r[iS]).trim() || null : null });
+  }
+  const rows = [...map.values()]; if (!rows.length) return toast('No smelters found in that file.');
+  const path = `reference/rmap/${crypto.randomUUID()}/${file.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+  const up = await sb.storage.from('compliance-docs').upload(path, file, { upsert: false });
+  const ld = await sb.from('reference_list_loads').insert({ list_code: 'RMAP', status: 'loading', file_sha256: await sha256(buf), storage_path: up.error ? null : path, notes: file.name, row_count: rows.length }).select('id').single();
+  if (ld.error) return toast(ld.error.message);
+  for (let i = 0; i < rows.length; i += 500) {
+    const r = await sb.from('rmap_smelters').insert(rows.slice(i, i + 500).map((x) => ({ ...x, load_id: ld.data.id })));
+    if (r.error) { await sb.from('reference_list_loads').update({ status: 'failed' }).eq('id', ld.data.id); return toast(r.error.message); }
+  }
+  await sb.from('reference_list_loads').update({ status: 'complete' }).eq('id', ld.data.id);
+  const decl = await sb.from('cmrt_declarations').select('id');
+  for (const d of decl.data || []) await sb.rpc('check_declaration_smelters', { p_declaration: d.id });
+  toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
+}
+
+async function processCmrt(id) {
+  toast('Reading CMRT…');
+  const { data: d, error } = await sb.from('documents').select('id,party_id,storage_path,issued_on,reporting_year').eq('id', id).single();
+  if (error) return toast(error.message);
+  const u = await sb.storage.from('compliance-docs').createSignedUrl(d.storage_path, 120);
+  if (u.error) return toast(u.error.message);
+  let wb; try { wb = XLSX.read(await (await fetch(u.data.signedUrl)).arrayBuffer(), { type: 'array' }); } catch (e) { return toast('Could not read this file as an Excel CMRT.'); }
+  const ds = wb.SheetNames.find((n) => /declaration/i.test(n)), ss = wb.SheetNames.find((n) => /smelter\s*list/i.test(n)) || wb.SheetNames.find((n) => /smelter/i.test(n));
+  if (!ss) return toast('No smelter list sheet found in this file.');
+  const dr = ds ? sheetRows(wb, ds) : [], sr = sheetRows(wb, ss), h = findHeader(sr, ['metal', 'smelter']);
+  if (h < 0) return toast('Could not find the smelter table header.');
+  const hdr = sr[h].map((c) => String(c).toLowerCase()), ix = (f) => hdr.findIndex(f);
+  const iM = ix((x) => x.includes('metal')), iN = ix((x) => x.includes('smelter name')), iC = ix((x) => x.includes('country')), iI = ix((x) => /identification|id number/.test(x));
+  const sm = [];
+  for (const r of sr.slice(h + 1)) {
+    const metal = String(r[iM] || '').toLowerCase().trim(), name = String(iN >= 0 ? r[iN] : '').trim(), cid = String(iI >= 0 ? r[iI] : '').trim();
+    if (!metal || metal.startsWith('select') || (!name && !cid)) continue;
+    sm.push({ metal: ['gold', 'tantalum', 'tin', 'tungsten', 'cobalt', 'mica'].find((m) => metal.includes(m)) || 'other', smelter_name: name || null, smelter_country: iC >= 0 ? String(r[iC]).trim() || null : null, smelter_id: cid || null });
+  }
+  const company = String(labelVal(dr, ['company name'])).trim(), auth = String(labelVal(dr, ['authorizer'])).trim(), adate = asDate(labelVal(dr, ['authorization date', 'effective date']));
+  const sc = String(labelVal(dr, ['declaration scope'])).toLowerCase();
+  const scope = !sc ? null : sc.includes('company') ? 'company' : sc.includes('categor') ? 'product_category' : sc.includes('user') ? 'user_defined' : sc.includes('product') ? 'product' : null;
+  const missing = [!company && 'company name', !auth && 'authorizer', !adate && 'authorization date', !scope && 'declaration scope', !sm.length && 'smelter list entries'].filter(Boolean);
+  const year = d.reporting_year || (d.issued_on ? +d.issued_on.slice(0, 4) : new Date().getFullYear());
+  const ver = (dr.slice(0, 12).flat().join(' ').match(/version\s*([0-9]+(\.[0-9]+)*)/i) || [])[1] || null;
+  const dc = await sb.from('cmrt_declarations').insert({ document_id: id, party_id: d.party_id, reporting_year: year, template_version: ver, declaration_scope: scope, declared_company: company || null, authorizer_name: auth || null, authorized_on: adate, is_complete: !missing.length, completeness_notes: missing.length ? 'Could not find: ' + missing.join(', ') + '. Please verify in the file.' : null }).select('id').single();
+  if (dc.error) return toast(dc.error.code === '23505' ? 'This CMRT was already read.' : dc.error.message);
+  for (let i = 0; i < sm.length; i += 200) { const r = await sb.from('cmrt_smelters').insert(sm.slice(i, i + 200).map((x) => ({ ...x, declaration_id: dc.data.id }))); if (r.error) return toast(r.error.message); }
+  const c = await sb.rpc('check_declaration_smelters', { p_declaration: dc.data.id });
+  toast(c.error ? 'Saved, but: ' + c.error.message : `${c.data[0].smelters_checked} smelters checked, ${c.data[0].smelters_flagged} need attention`);
+  renderMinerals();
+}
+
 const actions = {
+  parse: ({ id }) => processCmrt(id),
+  recheck: async ({ id }) => { const c = await sb.rpc('check_declaration_smelters', { p_declaration: id }); toast(c.error ? c.error.message : `${c.data[0].smelters_flagged} need attention`); renderMinerals(); },
+  viewDecl: async ({ id }) => {
+    const { data, error } = await sb.from('cmrt_smelters').select('metal,smelter_name,smelter_country,smelter_id,check_status').eq('declaration_id', id);
+    if (error) return toast(error.message);
+    data.sort((a, b) => FLAG.includes(b.check_status) - FLAG.includes(a.check_status) || (a.smelter_name || '').localeCompare(b.smelter_name || ''));
+    modal(`<h3 class="text-lg font-semibold">Declared smelters</h3><div class="mt-3 max-h-[60vh] overflow-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">Metal</th><th>Smelter</th><th>Country</th><th>ID</th><th>RMAP status</th></tr></thead><tbody>${data.map((s) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(s.metal)}</td><td>${esc(s.smelter_name || '')}</td><td>${esc(s.smelter_country || '')}</td><td class="font-mono text-xs">${esc(s.smelter_id || '')}</td><td>${s.check_status ? badge(SM_LABEL[s.check_status], SM_TONE[s.check_status]) : badge('Not checked', 'gray')}</td></tr>`).join('')}</tbody></table></div><div class="mt-4 text-right">${btn('Close', 'close')}</div>`);
+  },
+  resolveCase: ({ id }) => modal(`<h3 class="text-lg font-semibold">Resolve case</h3>
+    <label class="block mt-3 text-sm">Outcome<select id="csR" class="mt-1 w-full rounded-lg border border-slate-300 p-2"><option value="remediated">Remediated (supplier fixed or replaced it)</option><option value="accepted_risk">Accepted risk (with reasoning)</option><option value="false_positive">False positive</option><option value="not_applicable">Not applicable</option><option value="true_match">True match</option><option value="escalated_external">Escalated externally</option></select></label>
+    <label class="block mt-3 text-sm">What was done and why (required)<textarea id="csN" rows="4" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></textarea></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Resolve', 'doResolve', { id })}</div>`),
+  doResolve: async ({ id }) => {
+    const note = $('#csN').value.trim(); if (!note) return ($('#fErr').textContent = 'A written reason is required.');
+    const { error } = await sb.from('cases').update({ status: 'resolved', resolution: $('#csR').value, resolution_notes: note }).eq('id', id);
+    if (error) return ($('#fErr').textContent = error.message);
+    closeModal(); toast('Case resolved'); route();
+  },
+  addSku: async () => {
+    const { data, error } = await sb.from('parties').select('id,name').contains('roles', ['supplier']).eq('is_active', true).order('name');
+    if (error) return toast(error.message);
+    if (!data.length) return modal(`<p>Add a supplier first.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    const c = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
+    modal(`<h3 class="text-lg font-semibold">Add SKU</h3>
+      <label class="block mt-3 text-sm">SKU<input id="kSku" class="${c}"></label>
+      <label class="block mt-3 text-sm">Description<input id="kDesc" class="${c}"></label>
+      <label class="block mt-3 text-sm">Supplier<select id="kSup" class="${c}">${data.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="block mt-3 text-sm">Supplier part number (optional)<input id="kPn" class="${c}"></label>
+      <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
+      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSku')}</div>`);
+  },
+  saveSku: async () => {
+    const sku = $('#kSku').value.trim(); if (!sku) return ($('#fErr').textContent = 'Enter the SKU.');
+    const { error } = await sb.from('skus').insert({ sku, description: $('#kDesc').value.trim() || null, supplier_id: $('#kSup').value, supplier_part_number: $('#kPn').value.trim() || null });
+    if (error) return ($('#fErr').textContent = error.code === '23505' ? 'That SKU already exists.' : error.message);
+    closeModal(); toast('SKU added'); renderSkus();
+  },
+  remind: async ({ id }) => {
+    const { data: r, error } = await sb.from('requests').select('id,subject,message,status,party_id,due_on,party:parties(name),contact:party_contacts(id,name,email)').eq('id', id).single();
+    if (error) return toast(error.message);
+    if (!r.contact?.id) return toast('This request has no contact, so a link cannot be issued.');
+    const l = await sb.rpc('create_portal_link', { p_kind: 'supplier_upload', p_party: r.party_id, p_contact: r.contact.id, p_request: id, p_days: 30, p_label: 'Reminder: ' + r.subject });
+    if (l.error) return toast(l.error.message);
+    if (r.status === 'reminded') await sb.from('request_events').insert({ request_id: id, event_type: 'reminder', channel: 'email', notes: 'Reminder sent with a fresh link' });
+    const u = await sb.from('requests').update({ status: 'reminded' }).eq('id', id);
+    if (u.error) return toast(u.error.message);
+    const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`;
+    const first = (r.contact.name || '').split(' ')[0] || 'there';
+    const body = `Hello ${first},\n\nA friendly reminder that we are still waiting for: ${r.subject}${r.due_on ? ' (due ' + fmt(r.due_on) + ')' : ''}.\n\nHere is a fresh private upload link. No account is needed:\n${url}\n\nIf it is already on its way, thank you, and please ignore this note.\n\n${profile?.full_name || ''}`;
+    modal(`<h3 class="text-lg font-semibold">Reminder logged</h3><p class="text-sm text-slate-500 mt-1">A fresh link was created for ${esc(r.party?.name)}. It is shown only now.</p>
+      <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
+      <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="mailto:${encodeURIComponent(r.contact.email || '')}?subject=${encodeURIComponent('Reminder: ' + r.subject)}&body=${encodeURIComponent(body)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
+    $('#dlg').addEventListener('close', () => { if (view === 'requests') renderRequests(); }, { once: true });
+  },
+  closeReq: ({ id }) => modal(`<h3 class="text-lg font-semibold">Close this request</h3>
+    <label class="block mt-3 text-sm">Outcome<select id="rcR" class="mt-1 w-full rounded-lg border border-slate-300 p-2"><option value="fulfilled">Fulfilled</option><option value="not_applicable">Not applicable</option><option value="supplier_declined">Supplier declined</option><option value="no_response_escalated">No response, escalated</option><option value="other">Other</option></select></label>
+    <label class="block mt-3 text-sm">Note (required unless fulfilled)<textarea id="rcN" rows="3" class="mt-1 w-full rounded-lg border border-slate-300 p-2"></textarea></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Close request', 'doClose', { id })}</div>`),
+  doClose: async ({ id }) => {
+    const reason = $('#rcR').value, note = $('#rcN').value.trim();
+    if (reason !== 'fulfilled' && !note) return ($('#fErr').textContent = 'Please add a note.');
+    const { error } = await sb.from('requests').update({ status: 'closed', close_reason: reason }).eq('id', id);
+    if (error) return ($('#fErr').textContent = error.message);
+    if (note) await sb.from('request_events').insert({ request_id: id, event_type: 'note', notes: note });
+    closeModal(); toast('Request closed'); renderRequests();
+  },
   nav: ({ v }) => { view = v; route(); },
   signout: async () => { await sb.auth.signOut(); },
   mOk: () => askNote.ok(), mCancel: () => askNote.cancel(),
@@ -248,7 +477,7 @@ document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { con
 document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { ({ today: renderToday, suppliers: renderSuppliers, review: renderReview })[view](); }
+function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, review: renderReview })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
