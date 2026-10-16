@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conformality User Guide</title>
+<style>
+  :root { --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --accent:#0f172a; --tip:#ecfdf5; --tipline:#a7f3d0; --warn:#fffbeb; --warnline:#fde68a; --code:#f1f5f9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0b1220; --card:#111a2e; --ink:#e5e9f0; --muted:#9aa8bd; --line:#24314d; --accent:#e5e9f0; --tip:#0d2a22; --tipline:#14532d; --warn:#2a2410; --warnline:#713f12; --code:#17233b; } }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; scroll-padding-top:1rem; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 16px; display:grid; grid-template-columns:220px minmax(0,1fr); gap:40px; }
+  nav.toc { position:sticky; top:0; align-self:start; padding:28px 0; max-height:100vh; overflow:auto; font-size:14px; }
+  nav.toc b { display:block; margin-bottom:8px; font-size:13px; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+  nav.toc a { display:block; padding:4px 0; color:var(--muted); text-decoration:none; }
+  nav.toc a:hover { color:var(--ink); }
+  main { padding:28px 0 80px; min-width:0; }
+  h1 { font-size:2rem; margin:0 0 4px; }
+  h2 { font-size:1.45rem; margin:48px 0 8px; padding-top:12px; border-top:1px solid var(--line); }
+  h3 { font-size:1.05rem; margin:24px 0 4px; }
+  p { margin:8px 0; } ul,ol { padding-left:1.3rem; margin:8px 0; } li { margin:3px 0; }
+  .lead { color:var(--muted); font-size:1.05rem; }
+  .purpose { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:10px 14px; margin:12px 0; }
+  .purpose b { display:block; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); }
+  .tip,.warn { border-radius:8px; padding:10px 14px; margin:12px 0; font-size:.95rem; }
+  .tip { background:var(--tip); border:1px solid var(--tipline); } .warn { background:var(--warn); border:1px solid var(--warnline); }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; font-size:.93rem; margin:10px 0; }
+  th,td { text-align:left; padding:8px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:.82rem; } tr:last-child td { border-bottom:0; }
+  code,pre { background:var(--code); border-radius:5px; font:13px ui-monospace,Menlo,Consolas,monospace; } code { padding:1px 5px; } pre { padding:10px 12px; overflow:auto; }
+  .b { display:inline-block; padding:0 8px; border-radius:99px; font-size:12px; font-weight:600; line-height:20px; vertical-align:1px; }
+  .g { background:#dcfce7; color:#166534; } .a { background:#fef3c7; color:#92400e; } .r { background:#fee2e2; color:#991b1b; } .n { background:#e2e8f0; color:#334155; }
+  .btn { display:inline-block; padding:0 8px; border:1px solid var(--line); border-radius:6px; font-size:13px; font-weight:600; background:var(--card); }
+  .flow { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:10px 0; font-size:.92rem; }
+  .flow span { background:var(--card); border:1px solid var(--line); border-radius:6px; padding:4px 10px; } .flow i { color:var(--muted); font-style:normal; }
+  .scroll { overflow-x:auto; }
+  @media (max-width:820px) { .wrap { display:block; } nav.toc { position:static; max-height:none; padding-bottom:0; } }
+  @media print { nav.toc { display:none; } .wrap { display:block; } h2 { break-after:avoid; } .purpose,table,.tip,.warn { break-inside:avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <a href="#start">Start here</a>
+  <a href="#today">Today</a>
+  <a href="#suppliers">Suppliers</a>
+  <a href="#skus">SKUs</a>
+  <a href="#requests">Requests</a>
+  <a href="#minerals">Minerals</a>
+  <a href="#screening">Screening</a>
+  <a href="#trade">Trade</a>
+  <a href="#review">Review</a>
+  <a href="#audit">Audit</a>
+  <a href="#portal">Supplier portal</a>
+  <a href="#routines">Routines</a>
+  <a href="#admin">Admin notes</a>
+  <a href="#glossary">Glossary</a>
+</nav>
+
+<main>
+<h1>Conformality User Guide</h1>
+<p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
+
+<div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
+
+<h2 id="start">Start here</h2>
+
+<h3>The four jobs the app does</h3>
+<table>
+  <tr><th style="width:26%">Job</th><th>In plain words</th><th style="width:22%">Where</th></tr>
+  <tr><td><b>Conflict minerals</b></td><td>Customers ask us to prove our products do not fund armed conflict through tin, tantalum, tungsten or gold (3TG). Suppliers send a standard form listing the smelters (metal refiners) they use. We check each smelter against an official list.</td><td>Suppliers, Requests, Minerals, Review</td></tr>
+  <tr><td><b>Restricted party screening</b></td><td>Governments publish lists of people and companies we are not allowed to do business with. We compare our suppliers and customers against those lists and record every decision.</td><td>Screening</td></tr>
+  <tr><td><b>Export and import compliance</b></td><td>Every product has an export-control classification and a customs tariff code. Each order is checked before it ships: who is buying, where it is going, and what it is.</td><td>Trade</td></tr>
+  <tr><td><b>Evidence trail</b></td><td>Every change is logged with who, when and what. Entries are chained together so tampering can be detected.</td><td>Audit</td></tr>
+</table>
+
+<h3>Getting around</h3>
+<p>The top bar has one tab per area. Colored badges show status: <span class="b g">green</span> is fine, <span class="b a">amber</span> needs a look soon, <span class="b r">red</span> needs action, <span class="b n">gray</span> is neutral or not started. Most actions open a pop-up window. Decisions that matter ask you to type a short reason, and that reason is saved permanently.</p>
+
+<h3>A typical first week</h3>
+<ol>
+  <li><b>Minerals:</b> load the smelter list (RMAP).</li>
+  <li><b>Screening:</b> load the screening list from trade.gov.</li>
+  <li><b>Suppliers and SKUs:</b> add suppliers, one contact each, and import your part numbers.</li>
+  <li><b>Requests:</b> ask each supplier for their conflict minerals form.</li>
+  <li><b>Trade:</b> classify your products and add your customers.</li>
+  <li><b>Today:</b> work through whatever it lists.</li>
+</ol>
+
+<!-- ============ TODAY ============ -->
+<h2 id="today">Today</h2>
+<div class="purpose"><b>Purpose</b>Your to-do list. It gathers everything across the app that needs a person, sorted by urgency. If you only open one tab each day, make it this one.</div>
+<p>Three counters at the top show <i>Needs action now</i>, <i>Coming up</i> and <i>Low priority</i>. Each line has a button that takes you straight to the work:</p>
+<table>
+  <tr><th style="width:30%">You see</th><th>What it means</th><th style="width:22%">Button</th></tr>
+  <tr><td>Screen &lt;party&gt;</td><td>That supplier or customer has never been checked against the lists, or is due for a re-check (the interval is a setting; the Screening page flags "re-screen due" after 30 days).</td><td><span class="btn">Screen now</span> runs the check immediately.</td></tr>
+  <tr><td>Screening list is out of date</td><td>The government lists were last loaded more than 14 days ago.</td><td><span class="btn">Load list</span> opens Screening.</td></tr>
+  <tr><td>Possible list match</td><td>A party's name resembles a listed party. A person must decide whether it is the same one.</td><td><span class="btn">Review matches</span></td></tr>
+  <tr><td>Order on hold</td><td>An order failed a check and cannot ship until someone decides.</td><td><span class="btn">Open</span></td></tr>
+  <tr><td>Product needs classification</td><td>A SKU has no approved export classification, or one is due for review.</td><td><span class="btn">Open</span></td></tr>
+  <tr><td>Document or ownership form to review</td><td>A supplier uploaded something that needs your decision.</td><td><span class="btn">Open</span></td></tr>
+  <tr><td>Request overdue</td><td>A supplier has not replied by the due date.</td><td><span class="btn">Open</span></td></tr>
+  <tr><td>Other cases (for example flagged smelter)</td><td>Items the app opened automatically.</td><td><span class="btn">Resolve</span></td></tr>
+</table>
+<div class="tip">Items disappear when the underlying work is done. For example, a "Screen &lt;supplier&gt;" item clears after you screen that supplier, not when you tick something in Review.</div>
+
+<!-- ============ SUPPLIERS ============ -->
+<h2 id="suppliers">Suppliers</h2>
+<div class="purpose"><b>Purpose</b>The master list of the companies we buy from, with the status of their conflict minerals paperwork at a glance.</div>
+<table>
+  <tr><th style="width:24%">Column</th><th>Meaning</th></tr>
+  <tr><td>Contact</td><td>The one person we send requests to.</td></tr>
+  <tr><td>Conflict minerals</td><td>Status of their latest minerals form: <span class="b r">No CMRT</span> none on file, <span class="b a">Awaiting review</span> received but not decided, <span class="b g">Current</span> accepted, <span class="b a">Accepted with gaps</span>, or <span class="b r">Expired</span>.</td></tr>
+  <tr><td>Valid until</td><td>When the form needs to be renewed.</td></tr>
+  <tr><td>Smelter flags</td><td>How many smelters on their form still need attention.</td></tr>
+  <tr><td>Open requests / Cases</td><td>Outstanding asks and open issues for that supplier.</td></tr>
+</table>
+<h3>Actions</h3>
+<ul>
+  <li><span class="btn">+ Add supplier</span> creates a supplier.</li>
+  <li><span class="btn">Manage contact</span> opens the supplier's single contact. If one exists the form is pre-filled for editing; if not it is blank. A supplier can only be asked for documents once it has a contact.</li>
+  <li><span class="btn">Request documents</span> starts a request, explained under <a href="#requests">Requests</a>.</li>
+</ul>
+
+<!-- ============ SKUS ============ -->
+<h2 id="skus">SKUs</h2>
+<div class="purpose"><b>Purpose</b>Our product catalogue. A SKU (stock keeping unit) is one sellable part number. Linking each SKU to its supplier lets us answer a customer's question "is part X conflict-minerals compliant?" by looking up the supplier's current form.</div>
+<ul>
+  <li>Search by SKU, description or supplier.</li>
+  <li><span class="btn">+ Add SKU</span> adds one part.</li>
+  <li><span class="btn">Import CSV</span> adds many. Columns: <code>sku</code> and <code>supplier</code> (required, supplier name must match exactly), plus optional <code>description</code> and <code>supplier part number</code>. Existing SKUs are updated, not duplicated. Rows with an unrecognized supplier are skipped and listed.</li>
+</ul>
+
+<!-- ============ REQUESTS ============ -->
+<h2 id="requests">Requests</h2>
+<div class="purpose"><b>Purpose</b>Tracks every document we have asked a supplier for, so nothing is forgotten and there is a record that we asked.</div>
+<div class="flow"><span>Suppliers → Request documents</span><i>→</i><span>App creates a private upload link</span><i>→</i><span>You email the link</span><i>→</i><span>Supplier uploads</span><i>→</i><span>You review it</span></div>
+<ul>
+  <li><b>Creating a request</b> logs it as sent and generates a private link for the supplier. <b>The app does not send email itself.</b> It opens a pre-written email draft in your mail program, or you can copy the link. The link is shown only once, so copy or send it right away.</li>
+  <li><span class="btn">Remind</span> makes a fresh link and a reminder email draft.</li>
+  <li><span class="btn">Close</span> ends a request with an outcome (fulfilled, not applicable, supplier declined, no response escalated, other). Anything other than "fulfilled" needs a note.</li>
+  <li>Status: <span class="b a">Sent</span>, <span class="b a">Reminded</span>, <span class="b r">Overdue</span> (past the due date), <span class="b g">Received</span>.</li>
+</ul>
+
+<!-- ============ MINERALS ============ -->
+<h2 id="minerals">Minerals</h2>
+<div class="purpose"><b>Purpose</b>Reads each supplier's conflict minerals form and checks every smelter on it against the official conformant list, so you only have to look at the exceptions.</div>
+
+<h3>Background in three sentences</h3>
+<p>Tin, tantalum, tungsten and gold (3TG) can come from mines that fund armed groups. Customers expect us to show our suppliers use responsible smelters. A <b>CMRT</b> is the standard spreadsheet suppliers fill in to list their smelters, and the <b>RMAP</b> list, published by the Responsible Minerals Initiative (RMI), says which smelters have passed an independent audit.</p>
+
+<h3>The page, top to bottom</h3>
+<ol>
+  <li><b>RMAP smelter list.</b> Shows when it was last loaded. Download the latest Smelter Reference List from RMI and click <span class="btn">Load newer list</span>. Do this a few times a year, and before the annual customer reporting cycle.</li>
+  <li><b>CMRTs waiting to be read.</b> Forms suppliers have uploaded but the app has not yet read. Click <span class="btn">Read &amp; check smelters</span>. The app extracts the smelter table and compares each one to the list.</li>
+  <li><b>Checked declarations.</b> Defaults to <i>Needs attention</i>. Switch to <i>All</i> to see past years, filter by year or supplier, and optionally show archived items.</li>
+</ol>
+
+<h3>Smelter results</h3>
+<table>
+  <tr><th style="width:32%">Result</th><th>Meaning</th></tr>
+  <tr><td><span class="b g">Conformant</span></td><td>Passed audit. Nothing to do.</td></tr>
+  <tr><td><span class="b n">On RMI list, conformance not stated</span></td><td>Known smelter; the form does not state its audit status.</td></tr>
+  <tr><td><span class="b a">Active (in audit)</span></td><td>Currently going through an audit.</td></tr>
+  <tr><td><span class="b r">Non-conformant</span></td><td>Failed audit or was removed.</td></tr>
+  <tr><td><span class="b r">Not on RMAP list</span></td><td>The smelter ID is not in our loaded list. Check the spelling first, then the list date.</td></tr>
+  <tr><td><span class="b r">No smelter ID</span></td><td>The supplier left the ID blank.</td></tr>
+</table>
+
+<h3>Reviewing a declaration</h3>
+<p>Click <span class="btn">Review</span> on a row. You see the problem smelters. For each, record a decision with a short note:</p>
+<ul>
+  <li><b>Accepted after review</b> – you looked and are comfortable.</li>
+  <li><b>Following up with supplier</b> – waiting for an answer.</li>
+  <li><b>Supplier confirmed not in use</b> – the supplier says that smelter is not actually in our supply chain.</li>
+</ul>
+<p>When no flagged smelters remain open, the related case closes automatically. You can also add a note to any single smelter. Export the issues to CSV to send to the supplier.</p>
+<p>The <b>More ▾</b> menu offers: all declared smelters, re-check against a newer list, re-read the original file, and archive (with a reason) or restore.</p>
+<div class="tip">After a document is checked, go to <b>Review</b> to accept, accept with gaps, or reject the document itself. Checking smelters and accepting the document are two separate decisions.</div>
+
+<!-- ============ SCREENING ============ -->
+<h2 id="screening">Screening</h2>
+<div class="purpose"><b>Purpose</b>Checks the names of our suppliers and customers against government lists of sanctioned or restricted parties. Doing business with a listed party can lead to serious penalties, so we check regularly and keep proof that we did.</div>
+
+<h3>The lists</h3>
+<p>Use the free Consolidated Screening List (CSL) from <b>trade.gov</b>. It combines lists from three US agencies:</p>
+<table>
+  <tr><th style="width:30%">List</th><th>Published by</th><th>What it covers</th></tr>
+  <tr><td>OFAC SDN and non-SDN</td><td>Treasury (Office of Foreign Assets Control)</td><td>Sanctioned people, companies and vessels. Dealing with an SDN is generally prohibited.</td></tr>
+  <tr><td>BIS Entity List, Denied Persons, Military End-User, Unverified</td><td>Commerce (Bureau of Industry and Security)</td><td>Parties with export restrictions or extra licensing requirements.</td></tr>
+  <tr><td>State AECA Debarred</td><td>State Department</td><td>Parties barred from defense-related trade.</td></tr>
+</table>
+
+<h3>Loading a list</h3>
+<ol>
+  <li>On trade.gov, download the Consolidated Screening List as CSV.</li>
+  <li>Click <span class="btn">Load screening list</span> (or <span class="btn">Load newer list</span>) and choose the file.</li>
+  <li>The app shows a preview of how many entries were added, changed or removed. Confirm to apply it. A load that would remove an unusually large share of entries is refused unless you explicitly force it, which guards against loading a damaged file.</li>
+</ol>
+<p>The original file and its fingerprint are saved as evidence of what the list said that day. The page warns <span class="b r">Out of date</span> after 14 days. Reload every one to two weeks.</p>
+
+<h3>Screening parties</h3>
+<ul>
+  <li><span class="btn">Screen all parties</span> checks everyone. <span class="btn">Screen now</span> on a row checks just that party.</li>
+  <li>The Parties table shows last screened date and status: <span class="b g">Clear</span>, <span class="b a">n to review</span>, <span class="b r">Confirmed match</span>, <span class="b n">Not screened</span>. "Re-screen due" appears after 30 days.</li>
+  <li>The app will not report a party as clear if no list is loaded.</li>
+</ul>
+
+<h3>Reviewing a possible match</h3>
+<p>Names are compared by similarity, so a hit is a <i>possibility</i>, not an accusation. Most are coincidences, such as a common name. Click <span class="btn">Review</span> to see your party next to the listed entry (country, address, aliases, program, remarks), then choose:</p>
+<table>
+  <tr><th style="width:36%">Decision</th><th>Effect</th></tr>
+  <tr><td><b>Not the same party</b> (clear it)</td><td>Recorded with your note. The same pair will not alert again unless the list entry itself changes.</td></tr>
+  <tr><td><b>Same party</b> (confirm)</td><td>Marked as a confirmed match. A red banner appears on the page.</td></tr>
+</table>
+<p>A written reason is required for both. Example: <i>"Different country and address; the listed party is an individual and ours is a company."</i></p>
+<div class="warn"><b>If you confirm a match:</b> stop shipments and payments involving that party, and escalate to counsel. The app records the decision; it does not handle the legal response.</div>
+
+<!-- ============ TRADE ============ -->
+<h2 id="trade">Trade</h2>
+<div class="purpose"><b>Purpose</b>Export and import compliance. Before a product leaves the country we need to know how it is controlled; before an order ships we need to know who receives it and where. For imports we need the tariff code and country of origin so duties are right.</div>
+
+<h3>Key ideas</h3>
+<table>
+  <tr><th style="width:24%">Term</th><th>Plain meaning</th></tr>
+  <tr><td><b>EAR</b></td><td>Export Administration Regulations, run by Commerce. Covers most commercial products, including "dual-use" items with civilian and military uses. Controlled items have an <b>ECCN</b> code such as <code>7A994</code>. Items with no specific control are <code>EAR99</code>, the lowest level.</td></tr>
+  <tr><td><b>ITAR</b></td><td>International Traffic in Arms Regulations, run by State. Covers items made specifically for military use, listed on the <b>USML</b>. Much stricter. <b>The app only detects and holds ITAR items; it does not manage ITAR licensing.</b></td></tr>
+  <tr><td><b>Jurisdiction</b></td><td>Which regime governs the item: EAR, ITAR, EU dual-use, or other. Decide this first.</td></tr>
+  <tr><td><b>HTS code</b></td><td>Harmonized Tariff Schedule number used by customs to set the duty on imports.</td></tr>
+  <tr><td><b>Country of origin</b></td><td>Where the product was made, for customs and tariff purposes.</td></tr>
+</table>
+<p>The Trade page has five sub-tabs.</p>
+
+<h3>1. Classification</h3>
+<div class="purpose"><b>Purpose</b>Records the export-control and customs classification for each product, with who decided it, how, and when.</div>
+<ul>
+  <li>Counters: active SKUs, unclassified, drafts to approve, reviews due, ITAR items. Filter by status or search by SKU, supplier, ECCN or HTS.</li>
+  <li><span class="btn">Classify</span> opens a form: jurisdiction, source of the determination (supplier stated, a formal BIS ruling called a CCATS, self-classified, consultant), ECCN or USML category, encryption and GNSS (satellite positioning) flags, HTS code, country of origin, duty notes, applicable tariff programs, an optional evidence document, a <b>rationale</b>, and a next-review date.</li>
+  <li><span class="btn">Save draft</span> keeps it for later. <span class="btn">Save and approve</span> finalizes it. Approval requires jurisdiction, a rationale and a source. EAR needs an ECCN (or EAR99). ITAR needs a USML category and <b>can only be approved by an admin</b>.</li>
+  <li>An approved classification cannot be edited. A change creates a new version, and <span class="btn">History</span> shows every version. This is deliberate: the history is your evidence.</li>
+  <li>Where the supplier gave you a classification, record them as <i>Supplier stated</i>. It is still our responsibility, so someone should sanity-check it.</li>
+</ul>
+<p><b>Importing classifications (CSV).</b> Required column <code>sku</code>; optional <code>jurisdiction</code>, <code>eccn</code>, <code>usml</code>, <code>hts</code>, <code>origin</code>, <code>source</code>, <code>rationale</code>. Imported rows always become <b>drafts</b>; you still review and approve each one. Importing the same file twice creates duplicate drafts.</p>
+<pre>sku,jurisdiction,eccn,hts,origin,source,rationale
+MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification letter</pre>
+
+<h3>2. Orders</h3>
+<div class="purpose"><b>Purpose</b>The pre-shipment check. Each order's parties, destination and items are screened, and a person records the decision.</div>
+<ol>
+  <li><span class="btn">+ New order</span>: enter the order number, date, destination country (two letters), the customer, optional ship-to, end user, consignee and freight forwarder, and the items with quantities.</li>
+  <li><span class="btn">Screen order</span> runs the checks and sets a status: <span class="b g">Cleared</span>, <span class="b a">On hold</span>, or stays <span class="b n">Not screened</span>.</li>
+  <li>If on hold, read the reasons, resolve them, then <span class="btn">Release…</span> (with a note) or <span class="btn">Block…</span>.</li>
+</ol>
+<table>
+  <tr><th style="width:42%">Puts the order on hold</th><th>Shown as a note ("check before shipping")</th></tr>
+  <tr><td><ul>
+    <li>No destination</li>
+    <li>Destination is embargoed or restricted (Destinations tab)</li>
+    <li>A party has an open or confirmed list match</li>
+    <li>No items on the order</li>
+    <li>An item has no approved classification</li>
+    <li>An item is ITAR</li></ul></td>
+  <td><ul>
+    <li>Destination is on the watch list</li>
+    <li>Item has a control other than EAR99</li>
+    <li>EU or other jurisdiction</li>
+    <li>Encryption or GNSS involved</li></ul></td></tr>
+</table>
+<p>An order with a confirmed or open list match cannot be released. ITAR orders can only be released by an admin. Re-screen after any change.</p>
+<div class="warn">Screening an order does <b>not</b> decide whether a licence is required. Notes such as "non-EAR99" are prompts to check with your compliance lead or freight forwarder before shipping.</div>
+
+<h3>3. Customers &amp; ship-to</h3>
+<div class="purpose"><b>Purpose</b>The list of non-supplier parties: customers, ship-to addresses, end users, consignees and freight forwarders. They need to exist here so they can be put on orders and screened.</div>
+<p><span class="btn">+ Add party</span>: name, company or individual, country, one or more roles, address, and whether it is publicly traded. The <b>end user</b> is whoever finally uses the product, which may differ from the buyer. This matters for export rules. Deactivate a party instead of deleting it, so history is kept. Suppliers are managed on the Suppliers tab.</p>
+
+<h3>4. Customs records</h3>
+<div class="purpose"><b>Purpose</b>A filing cabinet for import and export paperwork, with automatic retention dates. Customs authorities can ask for these documents years later.</div>
+<p><span class="btn">+ Upload record</span>. Types: entry summary, commercial invoice, packing list, transport document, export filing, broker file, export licence. Optionally link it to an order. The <b>keep until</b> date is calculated from the document date using the retention period (default five years, an admin setting). Files cannot be changed or deleted once stored; each is fingerprinted.</p>
+
+<h3>5. Destinations</h3>
+<div class="purpose"><b>Purpose</b>A list of countries that trigger a hold or a note when an order is screened.</div>
+<p>Levels: <b>Embargoed</b> and <b>Restricted</b> put orders on hold; <b>Watch</b> adds a note only. <b>The list starts empty on purpose</b>: your admin and counsel decide what belongs, so the app never implies comfort from a default it guessed. Only an admin can add or remove rules. Until rules are set, orders to any destination are not held on country grounds.</p>
+
+<!-- ============ REVIEW ============ -->
+<h2 id="review">Review</h2>
+<div class="purpose"><b>Purpose</b>The inbox for everything suppliers send us. Nothing a supplier uploads counts until a person accepts it.</div>
+<h3>Documents to review</h3>
+<p>Each uploaded document shows the supplier, type, upload date and a SHA-256 "fingerprint" that proves the file has not changed since upload. For conflict minerals forms it also shows how many smelters need attention. Buttons: <span class="btn">View</span>, <span class="btn">Open file</span>, and then one decision:</p>
+<table>
+  <tr><th style="width:26%">Decision</th><th>Use when</th></tr>
+  <tr><td><span class="b g">Accept</span></td><td>The document is complete and usable.</td></tr>
+  <tr><td><span class="b a">Accept with gaps</span></td><td>Usable but incomplete. A note records what is missing.</td></tr>
+  <tr><td><span class="b r">Reject</span></td><td>Unusable. The supplier will need to send another.</td></tr>
+</table>
+<h3>Ownership submissions</h3>
+<p>Suppliers can certify who owns them. Ownership matters because sanctions rules (for example OFAC's "50 percent rule") can apply to a company owned by listed parties even when the company itself is not listed. Review the named owners, then <span class="btn">Accept &amp; screen owners</span> (the owners are added and screened) or <span class="btn">Send back</span>.</p>
+
+<!-- ============ AUDIT ============ -->
+<h2 id="audit">Audit</h2>
+<div class="purpose"><b>Purpose</b>The permanent, tamper-evident record of everything done in the app. This is what you show an auditor or customer to prove the process is real.</div>
+<ul>
+  <li>Each entry shows number, time, who, whether something was created, changed or deleted, which record, and what changed. <span class="btn">Details</span> shows before and after values.</li>
+  <li>Filter by date, area (such as Screening hit or Classification), action, or free text.</li>
+  <li>The badge at the top (<span class="b g">Integrity verified</span>) means the chain of entries checks out. <span class="b r">Integrity problem</span> means an entry was altered or removed, so tell your admin immediately.</li>
+  <li><span class="btn">Export CSV</span> for the full set; <span class="btn">Print / save as PDF report</span> for a formatted report. The screen shows the latest 500 entries.</li>
+  <li>Entries cannot be edited or deleted by anyone through the app.</li>
+</ul>
+
+<!-- ============ PORTAL ============ -->
+<h2 id="portal">The supplier portal (what suppliers see)</h2>
+<div class="purpose"><b>Purpose</b>A simple page where suppliers upload what we asked for, without needing an account or password.</div>
+<ul>
+  <li>The supplier opens the private link you sent, sees what is requested, and uploads the file. Some requests also ask them to certify ownership.</li>
+  <li>Links expire. Each is tied to one supplier and one request. If a link expires or is lost, use <span class="btn">Remind</span> on Requests to make a fresh one.</li>
+  <li>Uploads appear in <b>Review</b>. Suppliers see only their own request, never other data in the app.</li>
+</ul>
+
+<!-- ============ ROUTINES ============ -->
+<h2 id="routines">Suggested routines</h2>
+<table>
+  <tr><th style="width:20%">How often</th><th>Task</th></tr>
+  <tr><td>Daily</td><td>Open <b>Today</b>. Clear anything marked red. Review new documents and open match hits.</td></tr>
+  <tr><td>Every 1–2 weeks</td><td>Load a fresh screening list from trade.gov, then <b>Screen all parties</b>.</td></tr>
+  <tr><td>Before every shipment</td><td>Add the order and <b>Screen order</b>; ship only when it is Cleared.</td></tr>
+  <tr><td>Monthly</td><td>Check <b>Requests</b> for overdue items and send reminders. Check that new products are classified.</td></tr>
+  <tr><td>Annually</td><td>Request updated conflict minerals forms from every supplier. Load the latest RMAP list first. Review classifications due for review. Check the Destinations list with counsel.</td></tr>
+  <tr><td>Whenever asked</td><td>Use <b>Audit</b> to export evidence.</td></tr>
+</table>
+
+<h2 id="admin">Notes for the administrator</h2>
+<ul>
+  <li><b>Roles.</b> Users have a role on their profile. Admins can approve ITAR classifications, release ITAR orders, and edit Destination rules. Other users can read and perform the routine work. Role names are shown top right next to your name.</li>
+  <li><b>Settings</b> (stored in the database) include screening match thresholds, how many days before the list is "out of date" (14), re-screening interval (30 days), and customs retention years (5). Change these with your compliance lead, not casually.</li>
+  <li><b>Protected data.</b> Screening lists, audit entries and approved classifications are write-protected. They can only change through the app's built-in actions, which is why the history can be trusted.</li>
+  <li><b>Setup.</b> The database is built by running the numbered SQL files (parts 1 through 9) in order in the Supabase SQL editor. Each is safe to re-run. The app is a single <code>index.html</code> plus a supplier <code>portal.html</code>, with connection keys in the <code>CFG</code> block at the top of each. Keep your own keys when replacing a file with a newer version.</li>
+  <li><b>Not yet built.</b> Automatic emailing of requests, scheduled nightly list loading, a customer-facing report page, and user and settings administration screens.</li>
+</ul>
+
+<h2 id="glossary">Glossary</h2>
+<div class="scroll"><table>
+  <tr><th style="width:18%">Term</th><th>Meaning</th></tr>
+  <tr><td>3TG</td><td>Tin, tantalum, tungsten and gold, the four "conflict minerals."</td></tr>
+  <tr><td>AECA</td><td>Arms Export Control Act, the law behind ITAR. "AECA Debarred" means barred from defense trade.</td></tr>
+  <tr><td>BIS</td><td>Bureau of Industry and Security, part of the US Department of Commerce. Administers the EAR.</td></tr>
+  <tr><td>CCATS</td><td>Commodity Classification Automated Tracking System. A formal written classification ruling issued by BIS.</td></tr>
+  <tr><td>CMRT</td><td>Conflict Minerals Reporting Template. The standard spreadsheet suppliers use to declare their smelters.</td></tr>
+  <tr><td>COO</td><td>Country of origin, where a product was made.</td></tr>
+  <tr><td>CSL</td><td>Consolidated Screening List. One file combining several US government restricted-party lists.</td></tr>
+  <tr><td>CSV</td><td>Comma-separated values. A simple spreadsheet file that Excel can open and save.</td></tr>
+  <tr><td>Dual-use</td><td>Items with both civilian and military applications.</td></tr>
+  <tr><td>EAR / EAR99</td><td>Export Administration Regulations. EAR99 is the catch-all category for items without a specific control.</td></tr>
+  <tr><td>ECCN</td><td>Export Control Classification Number. The code under the EAR that says how an item is controlled.</td></tr>
+  <tr><td>End user</td><td>The party who ultimately uses the product.</td></tr>
+  <tr><td>GNSS</td><td>Global Navigation Satellite System (such as GPS). Positioning products can carry extra export controls.</td></tr>
+  <tr><td>HTS</td><td>Harmonized Tariff Schedule. The code customs uses to set duties on imports.</td></tr>
+  <tr><td>IEEPA</td><td>International Emergency Economic Powers Act, the legal basis for some sanctions and tariffs.</td></tr>
+  <tr><td>ITAR</td><td>International Traffic in Arms Regulations, run by the State Department.</td></tr>
+  <tr><td>OFAC</td><td>Office of Foreign Assets Control, part of the US Treasury. Publishes sanctions lists.</td></tr>
+  <tr><td>RMAP</td><td>Responsible Minerals Assurance Process. An audit program for smelters.</td></tr>
+  <tr><td>RMI</td><td>Responsible Minerals Initiative. Publishes the RMAP smelter list and the CMRT template.</td></tr>
+  <tr><td>SDN</td><td>Specially Designated Nationals. OFAC's main list of sanctioned parties.</td></tr>
+  <tr><td>SHA-256</td><td>A fingerprint calculated from a file's contents. If even one character changes, the fingerprint changes.</td></tr>
+  <tr><td>Section 232 / 301</td><td>US trade laws behind certain extra tariffs (232: national security; 301: unfair trade practices).</td></tr>
+  <tr><td>SKU</td><td>Stock keeping unit. One part number.</td></tr>
+  <tr><td>Smelter</td><td>A refinery that processes ore or scrap into metal.</td></tr>
+  <tr><td>USML</td><td>United States Munitions List. The list of items controlled under ITAR.</td></tr>
+</table></div>
+
+<p style="color:var(--muted);font-size:.9rem;margin-top:40px">Conformality user guide. Describes the app as built through the trade compliance and screening speed updates (database parts 1–9).</p>
+</main>
+</div>
+</body>
+</html>
