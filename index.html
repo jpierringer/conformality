@@ -434,7 +434,7 @@ async function renderScreening() {
   loading();
   const [lo, sm, hi, pa, cf] = await Promise.all([
     sb.from('reference_list_loads').select('id,list_code,loaded_at,row_count,status,notes').neq('list_code', 'RMAP').order('loaded_at', { ascending: false }).limit(5),
-    sb.from('v_sanctions_summary').select('*'),
+    sb.rpc('sanctions_summary'),
     sb.from('screening_hits').select('id,party_id,matched_name,score,band,country_corroborated,created_at,party:parties(name,country,address_line,kind),entry:sanctions_entries(source_list,name,entry_type,countries,programs,remarks,addresses,listed_on)').eq('status', 'open').order('score', { ascending: false }),
     sb.from('v_party_status').select('*').eq('is_active', true).order('name'),
     sb.from('screening_hits').select('id', { count: 'exact', head: true }).eq('status', 'confirmed')]);
@@ -494,7 +494,7 @@ async function importCsl(file) {
   }
   const entries = [...map.values()]; if (!entries.length) return toast('No entries found in that file.');
   const counts = {}; for (const e of entries) counts[e.list] = (counts[e.list] || 0) + 1;
-  const cur = await sb.from('v_sanctions_summary').select('*'); const was = Object.fromEntries((cur.data || []).map((x) => [x.source_list, x.active_entries]));
+  const cur = await sb.rpc('sanctions_summary'); const was = Object.fromEntries((cur.data || []).map((x) => [x.source_list, x.active_entries]));
   pendingCsl = { file, entries, lists: Object.keys(counts) };
   modal(`<h3 class="text-lg font-semibold">Check before loading</h3>
     <p class="text-sm text-slate-600 mt-1">${entries.length.toLocaleString()} entries found in ${esc(file.name)}.</p>
