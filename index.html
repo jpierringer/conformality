@@ -56,7 +56,7 @@ function shell(inner) {
   $('#app').innerHTML = `
   <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
     <div class="font-semibold tracking-tight mr-4">Conformality</div>
-    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('review','Review')}${tab('audit','Audit')}</nav>
+    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('screening','Screening')}${tab('trade','Trade')}${tab('review','Review')}${tab('audit','Audit')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
   <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
@@ -83,7 +83,7 @@ async function renderToday() {
       <div class="p-4 flex items-start gap-3">
         <div class="pt-0.5">${badge(w.severity, TONE[w.severity])}</div>
         <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
+        ${w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'screening' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) ? btn('Review matches', 'nav', { v: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
       </div>`).join('') : '<p class="p-8 text-center text-slate-500">Nothing needs attention. Nice.</p>'}
     </div>`);
 }
@@ -423,8 +423,433 @@ async function showFindings(declId, docId) {
 }
 
 
+// ---- restricted party screening ---------------------------------------------------
+const LIST_LABEL = { OFAC_SDN: 'OFAC SDN', OFAC_NONSDN: 'OFAC non-SDN', BIS_ENTITY: 'BIS Entity List', BIS_MEU: 'BIS Military End-User', BIS_DPL: 'BIS Denied Persons', BIS_UVL: 'BIS Unverified List', STATE_DEBARRED: 'State AECA Debarred', OTHER: 'Other US list' };
+const listName = (c) => LIST_LABEL[c] || c;
+const daysAgo = (t) => Math.floor((Date.now() - new Date(t).getTime()) / 864e5);
+const setMsg = (t) => { const e = $('#ldMsg'); if (e) e.textContent = t; else toast(t); };
+let pendingCsl = null, cslCtx = null, hitsById = new Map();
+
+async function renderScreening() {
+  loading();
+  const [lo, sm, hi, pa, cf] = await Promise.all([
+    sb.from('reference_list_loads').select('id,list_code,loaded_at,row_count,status,notes').neq('list_code', 'RMAP').order('loaded_at', { ascending: false }).limit(5),
+    sb.from('v_sanctions_summary').select('*'),
+    sb.from('screening_hits').select('id,party_id,matched_name,score,band,country_corroborated,created_at,party:parties(name,country,address_line,kind),entry:sanctions_entries(source_list,name,entry_type,countries,programs,remarks,addresses,listed_on)').eq('status', 'open').order('score', { ascending: false }),
+    sb.from('v_party_status').select('*').eq('is_active', true).order('name'),
+    sb.from('screening_hits').select('id', { count: 'exact', head: true }).eq('status', 'confirmed')]);
+  const bad = [lo, sm, hi, pa, cf].find((r) => r.error); if (bad) return fail(bad.error);
+  hitsById = new Map(hi.data.map((h) => [h.id, h]));
+  const last = lo.data.find((l) => l.status === 'complete'), stale = last && daysAgo(last.loaded_at) > 14;
+  const chips = sm.data.filter((x) => x.active_entries > 0).map((x) => `<span class="inline-flex rounded-full bg-slate-100 text-slate-600 text-xs px-2.5 py-0.5">${esc(listName(x.source_list))} · ${x.active_entries.toLocaleString()}</span>`).join(' ');
+  const status = (p) => p.confirmed_hits > 0 ? badge('Confirmed match', 'red') : p.open_hits > 0 ? badge(p.open_hits + ' to review', 'amber') : p.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray');
+  shell(`<div class="flex flex-wrap items-center justify-between gap-2 mb-4"><h2 class="text-xl font-semibold">Restricted party screening</h2>${last ? btn('Screen all parties', 'screenAllBtn') : ''}</div>
+  ${cf.count ? `<div class="mb-4 rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700"><b>${cf.count} confirmed match${cf.count > 1 ? 'es' : ''}.</b> Confirmed matches need escalation outside this tool (counsel, and no shipments or payments until decided).</div>` : ''}
+  <div class="rounded-xl bg-white border border-slate-200 p-4 mb-6">
+    <div class="flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[14rem]"><div class="font-medium">Screening lists ${stale ? badge('Out of date', 'red') : ''}</div>
+    <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${(last.row_count || 0).toLocaleString()} entries` : 'No list loaded yet. Screening cannot run until one is.'}</div></div>
+    <label class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${last ? 'Load newer list' : 'Load screening list'}<input id="cslFile" type="file" accept=".csv" class="hidden"></label></div>
+    ${chips ? `<div class="mt-3 flex flex-wrap gap-1.5">${chips}</div>` : ''}
+    <p class="text-xs text-slate-500 mt-3">Download the Consolidated Screening List CSV from <a class="underline" target="_blank" rel="noopener" href="https://www.trade.gov/consolidated-screening-list">trade.gov</a>. It combines the OFAC, BIS and State Department lists and is updated daily. Load a fresh copy at least every couple of weeks. Each load keeps the original file with its fingerprint as evidence of what the list said that day.</p></div>
+  <h3 class="font-semibold mb-2">Possible matches to review (${hi.data.length})</h3>
+  <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-6">${hi.data.map((h) => `<div class="p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="font-medium">${esc(h.party?.name)} <span class="text-slate-400 font-normal">may match</span> ${esc(h.matched_name)}</div>
+    <div class="text-sm text-slate-500">${esc(listName(h.entry?.source_list))} · ${Math.round(h.score * 100)}% similar${h.country_corroborated ? ' · same country' : ''}</div></div>${badge(h.band === 'likely' ? 'Likely' : 'Possible', h.band === 'likely' ? 'red' : 'amber')}${btn('Review', 'hitReview', { id: h.id })}</div>`).join('') || '<p class="p-6 text-center text-slate-500">No open matches.</p>'}</div>
+  <h3 class="font-semibold mb-2">Parties</h3>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Party</th><th class="p-3">Last screened</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
+  <tbody class="divide-y divide-slate-100">${pa.data.map((p) => `<tr><td class="p-3 font-medium">${esc(p.name)}<div class="text-xs text-slate-400">${esc((p.roles || []).join(', '))}${p.country ? ' · ' + esc(p.country) : ''}</div></td><td class="p-3">${p.last_screened_at ? fmt(p.last_screened_at) + (daysAgo(p.last_screened_at) > 30 ? ' <span class="text-xs text-amber-700">re-screen due</span>' : '') : 'Never'}</td><td class="p-3">${status(p)}</td><td class="p-3 text-right">${last ? btn('Screen now', 'screenNow', { id: p.party_id }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-500">No parties yet.</td></tr>'}</tbody></table></div>`);
+  $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
+}
+
+const CSL_LIST = (s) => {
+  s = String(s || '');
+  if (/non-?sdn|\bNS-|sectoral|\bSSI\b|\bFSE\b|evader|capta|\bPLC\b|\bCMIC\b|menu-based/i.test(s)) return 'OFAC_NONSDN';
+  if (/specially designated|\bSDN\b/i.test(s)) return 'OFAC_SDN';
+  if (/military end|\bMEU\b/i.test(s)) return 'BIS_MEU';
+  if (/entity list|\bEL\b/i.test(s)) return 'BIS_ENTITY';
+  if (/denied persons|\bDPL\b/i.test(s)) return 'BIS_DPL';
+  if (/unverified|\bUVL\b/i.test(s)) return 'BIS_UVL';
+  if (/debarred|\bDTC\b/i.test(s)) return 'STATE_DEBARRED';
+  if (/treasury|ofac/i.test(s)) return 'OFAC_NONSDN';
+  return 'OTHER';
+};
+const isoDate = (v) => { v = String(v || '').trim(); if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10); const t = Date.parse(v); return isNaN(t) ? null : new Date(t).toISOString().slice(0, 10); };
+async function importCsl(file) {
+  if (!file) return;
+  if (!/\.csv$/i.test(file.name)) return toast('Please choose the CSV version of the list.');
+  toast('Reading list…');
+  let rows; try { rows = parseCsvText(await file.text()); } catch (e) { return toast('Could not read that file.'); }
+  const hdr = (rows[0] || []).map((h) => String(h).replace(/^﻿/, '').trim().toLowerCase().replace(/[\s-]+/g, '_'));
+  const ix = (k) => hdr.indexOf(k);
+  if (ix('source') < 0 || ix('name') < 0) return modal(`<p class="text-sm">This does not look like the Consolidated Screening List CSV. It needs "source" and "name" columns. Columns found:</p><p class="text-xs text-slate-500 mt-2">${esc(hdr.filter(Boolean).join(' | '))}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  const g = (r, k) => (ix(k) >= 0 ? String(r[ix(k)] ?? '').trim() : ''), split = (v) => v.split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean);
+  const map = new Map();
+  for (const r of rows.slice(1)) {
+    const name = g(r, 'name'); if (!name) continue;
+    const src = g(r, 'source'), list = CSL_LIST(src), addrs = split(g(r, 'addresses')), num = g(r, 'entity_number');
+    const base = num || 'n:' + name.toLowerCase() + '|' + (addrs[0] || ''), uid = list === 'OFAC_SDN' ? base : base + '|' + src;
+    const countries = [...new Set(addrs.map((a) => (a.split(',').pop() || '').trim()).filter((c) => /^[A-Z]{2}$/.test(c)))];
+    const type = g(r, 'type').toLowerCase() || null, lic = g(r, 'license_requirement');
+    map.set(list + '|' + uid, { list, uid, name, type, countries, programs: split(g(r, 'programs')), aliases: split(g(r, 'alt_names')), addresses: addrs.slice(0, 10),
+      remarks: [g(r, 'title'), g(r, 'remarks'), lic ? 'License requirement: ' + lic : ''].filter(Boolean).join(' · ').slice(0, 1500) || null, listed_on: isoDate(g(r, 'start_date')) });
+  }
+  const entries = [...map.values()]; if (!entries.length) return toast('No entries found in that file.');
+  const counts = {}; for (const e of entries) counts[e.list] = (counts[e.list] || 0) + 1;
+  const cur = await sb.from('v_sanctions_summary').select('*'); const was = Object.fromEntries((cur.data || []).map((x) => [x.source_list, x.active_entries]));
+  pendingCsl = { file, entries, lists: Object.keys(counts) };
+  modal(`<h3 class="text-lg font-semibold">Check before loading</h3>
+    <p class="text-sm text-slate-600 mt-1">${entries.length.toLocaleString()} entries found in ${esc(file.name)}.</p>
+    <table class="w-full text-sm mt-3"><thead class="text-left text-slate-500"><tr><th class="py-1">List</th><th>In this file</th><th>Loaded now</th></tr></thead><tbody>${Object.entries(counts).map(([l, n]) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(listName(l))}</td><td>${n.toLocaleString()}</td><td class="text-slate-500">${(was[l] || 0).toLocaleString()}</td></tr>`).join('')}</tbody></table>
+    ${counts.OFAC_SDN ? '' : '<div class="mt-3 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">This file has no OFAC SDN entries. Make sure you downloaded the full Consolidated Screening List.</div>'}
+    <p class="text-xs text-slate-500 mt-3">Loading adds new entries, updates changed ones, and retires entries that are no longer listed (kept for history). All parties are then screened automatically.</p>
+    <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Load and screen', 'commitCsl')}</div>`);
+}
+async function screenAll(runType) {
+  const ps = await sb.from('parties').select('id,name').eq('is_active', true).order('name'); if (ps.error) throw ps.error;
+  if (!ps.data.length) return { n: 0, open: 0, skipped: [] };
+  const lu = await sb.from('reference_list_loads').select('id,list_code').neq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false });
+  const lists = {}; for (const l of lu.data || []) if (!lists[l.list_code]) lists[l.list_code] = l.id;
+  const run = await sb.from('screening_runs').insert({ run_type: runType, lists_used: lists }).select('id').single(); if (run.error) throw run.error;
+  let i = 0; const skipped = [];
+  for (const p of ps.data) {
+    setMsg(`Screening ${++i} of ${ps.data.length}: ${p.name}`);
+    const r = await sb.rpc('screen_party', { p_party: p.id, p_run: run.data.id });
+    if (r.error) { if (/No screening lists/.test(r.error.message)) throw r.error; skipped.push(`${p.name}: ${r.error.message}`); }
+  }
+  const oh = await sb.from('screening_hits').select('id', { count: 'exact', head: true }).eq('status', 'open');
+  await sb.from('screening_runs').update({ finished_at: new Date().toISOString(), parties_screened: ps.data.length - skipped.length, hits_found: oh.count || 0 }).eq('id', run.data.id);
+  return { n: ps.data.length - skipped.length, open: oh.count || 0, skipped };
+}
+async function finishCsl(force) {
+  const { loadId, lists, total } = cslCtx;
+  const f = await sb.rpc('finish_sanctions_load', { p_load: loadId, p_lists: lists, p_force: !!force });
+  if (f.error) {
+    if (/would lose/.test(f.error.message)) return modal(`<h3 class="text-lg font-semibold">This file looks incomplete</h3><p class="text-sm mt-2">${esc(f.error.message)}</p><p class="text-sm text-slate-600 mt-2">If you downloaded the full list just now, the list may genuinely have shrunk. Otherwise cancel and download it again.</p><div class="mt-4 flex justify-end gap-2">${btn('Cancel load', 'cancelCsl', {}, 'ghost')}${btn('Retire them anyway', 'forceCsl', {}, 'danger')}</div>`);
+    await sb.rpc('fail_sanctions_load', { p_load: loadId, p_reason: f.error.message }); return modal(`<p class="text-sm text-red-700">${esc(f.error.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  }
+  setMsg('Screening all parties…');
+  let res; try { res = await screenAll('list_update'); } catch (e) { cslCtx = null; renderScreening(); return modal(`<h3 class="text-lg font-semibold">List loaded, screening did not run</h3><p class="text-sm mt-2">${esc(e.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
+  cslCtx = null; renderScreening();
+  modal(`<h3 class="text-lg font-semibold">Screening list loaded</h3>
+    <table class="w-full text-sm mt-3"><thead class="text-left text-slate-500"><tr><th class="py-1">List</th><th>Entries</th><th>Retired</th></tr></thead><tbody>${Object.entries(f.data).map(([l, v]) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(listName(l))}</td><td>${v.entries.toLocaleString()}</td><td>${v.retired}</td></tr>`).join('')}</tbody></table>
+    <p class="text-sm mt-3">${res.n} part${res.n === 1 ? 'y' : 'ies'} screened. ${res.open ? `<b class="text-amber-700">${res.open} possible match${res.open > 1 ? 'es' : ''} to review.</b>` : 'No matches.'}</p>
+    ${res.skipped.length ? `<p class="text-xs text-red-600 mt-2">Not screened: ${esc(res.skipped.join('; '))}</p>` : ''}
+    <div class="mt-4 flex justify-end gap-2">${btn('Close', 'close', {}, res.open ? 'ghost' : 'primary')}</div>`);
+}
+async function commitCsl() {
+  const { file, entries, lists } = pendingCsl || {}; if (!entries) return;
+  modal(`<h3 class="text-lg font-semibold">Loading screening list</h3><p id="ldMsg" class="text-sm text-slate-600 mt-2">Saving the original file…</p><p class="text-xs text-slate-500 mt-3">Keep this window open until it finishes. This can take a minute or two.</p>`);
+  const buf = await file.arrayBuffer(), path = `reference/screening/${crypto.randomUUID()}/${file.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+  const up = await sb.storage.from('compliance-docs').upload(path, file, { upsert: false });
+  const ld = await sb.from('reference_list_loads').insert({ list_code: 'CSL', status: 'loading', file_sha256: await sha256(buf), storage_path: up.error ? null : path, notes: file.name, row_count: entries.length }).select('id').single();
+  if (ld.error) return modal(`<p class="text-sm text-red-700">${esc(ld.error.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  cslCtx = { loadId: ld.data.id, lists, total: entries.length };
+  try {
+    for (let i = 0; i < entries.length; i += 200) {
+      setMsg(`Loading entries ${Math.min(i + 200, entries.length).toLocaleString()} of ${entries.length.toLocaleString()}…`);
+      const r = await sb.rpc('load_sanctions_batch', { p_load: ld.data.id, p_entries: entries.slice(i, i + 200) }); if (r.error) throw r.error;
+    }
+  } catch (e) { await sb.rpc('fail_sanctions_load', { p_load: ld.data.id, p_reason: e.message }); cslCtx = null; return modal(`<h3 class="text-lg font-semibold">Load failed</h3><p class="text-sm mt-2 text-red-700">${esc(e.message)}</p><p class="text-xs text-slate-500 mt-2">The previous list is still in use. You can try again.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
+  pendingCsl = null; setMsg('Finishing…'); await finishCsl(false);
+}
+async function hitReviewModal(id) {
+  const h = hitsById.get(id); if (!h) return;
+  const e = h.entry || {}, p = h.party || {};
+  const kv = (k, v) => (v ? `<div class="mt-2"><div class="text-xs text-slate-500">${k}</div><div class="text-sm">${v}</div></div>` : '');
+  const col = (title, inner) => `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${title}</div>${inner}</div>`;
+  modal(`<h3 class="text-lg font-semibold">${esc(p.name)} <span class="text-slate-400 font-normal">may match</span> ${esc(h.matched_name)}</h3>
+    <p class="text-sm text-slate-500 mt-1">${Math.round(h.score * 100)}% name similarity · ${h.band === 'likely' ? 'likely' : 'possible'} match${h.country_corroborated ? ' · same country' : ''}</p>
+    <div class="mt-3 grid sm:grid-cols-2 gap-3 max-h-[46vh] overflow-auto">
+    ${col('Your party', kv('Name', esc(p.name)) + kv('Type', esc(p.kind)) + kv('Country', esc(p.country)) + kv('Address', esc(p.address_line)))}
+    ${col('On the list', kv('Listed name', esc(e.name)) + (e.name !== h.matched_name ? kv('Matched alias', esc(h.matched_name)) : '') + kv('List', esc(listName(e.source_list))) + kv('Type', esc(e.entry_type)) + kv('Programs', esc((e.programs || []).join(', '))) + kv('Countries', esc((e.countries || []).join(', '))) + kv('Addresses', (e.addresses || []).slice(0, 4).map(esc).join('<br>')) + kv('Listed on', e.listed_on ? fmt(e.listed_on) : '') + kv('Remarks', esc((e.remarks || '').slice(0, 600))))}</div>
+    <label class="block mt-4 text-sm">Decision<select id="htD" class="mt-1 w-full rounded-lg border border-slate-300 p-2"><option value="cleared">Not the same party (clear it)</option><option value="confirmed">Same party (confirm the match)</option></select></label>
+    <label class="block mt-3 text-sm">What did you check and why (required)<textarea id="htN" rows="3" class="mt-1 w-full rounded-lg border border-slate-300 p-2" placeholder="For example: different country and address, and the listed party is an individual; ours is a company."></textarea></label>
+    <p class="text-xs text-slate-500 mt-1">A cleared pair is remembered, so it will not alert again unless the list entry changes. If you cannot tell yet, close this and ask the party for more details.</p>
+    <p id="fErr" class="text-xs text-red-600 mt-1 h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${btn('Save decision', 'doHit', { id })}</div>`, true);
+}
+
+// ---- trade compliance (EAR / ITAR / imports) -----------------------------------------
+let tradeTab = 'class', tradeF = { q: '', st: '' };
+const TRADE_TABS = [['class', 'Classification'], ['orders', 'Orders'], ['parties', 'Customers & ship-to'], ['records', 'Customs records'], ['dest', 'Destinations']];
+const TARIFFS = ['Section 301', 'Section 232', 'Reciprocal / IEEPA tariffs', 'Antidumping / countervailing duty', 'Free-trade preference claimed', 'Other'];
+const CUSTOMS_TYPES = ['entry_summary', 'commercial_invoice', 'packing_list', 'transport_doc', 'export_filing', 'broker_file', 'export_license'];
+const ORDER_TONE = { pending: 'gray', cleared: 'green', hold: 'red', blocked: 'red' };
+const ORDER_LABEL = { pending: 'Not screened', cleared: 'Cleared', hold: 'On hold', blocked: 'Blocked' };
+const PARTY_ROLES = [['customer', 'Customer'], ['ship_to', 'Ship-to'], ['end_user', 'End user'], ['consignee', 'Consignee'], ['forwarder', 'Forwarder'], ['owner', 'Owner'], ['other', 'Other']];
+const isAdminUser = () => profile?.role === 'admin';
+const inp = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+async function renderTrade() {
+  loading();
+  const seg = TRADE_TABS.map(([k, l]) => `<button data-a="tradeTab" data-v="${k}" class="px-3 py-1 text-sm rounded-md ${tradeTab === k ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${l}</button>`).join('');
+  try {
+    const out = await ({ class: tradeClass, orders: tradeOrders, parties: tradeParties, records: tradeRecords, dest: tradeDest })[tradeTab]();
+    shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Trade compliance</h2><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${seg}</div></div>${out.html}`);
+    out.bind && out.bind();
+  } catch (e) { fail(e); }
+}
+
+// ---- classification ---------------------------------------------------------------------
+const controlBadge = (s) => !s.cur_id ? '' : s.jurisdiction === 'ITAR' ? badge('ITAR · USML ' + (s.usml_category || '?'), 'red') : s.jurisdiction === 'EAR' ? badge('EAR · ' + (s.eccn || '?'), s.eccn && s.eccn.toUpperCase() !== 'EAR99' ? 'amber' : 'green') : badge((s.jurisdiction || '') + ' ' + (s.eu_dual_use_no || s.other_control_no || ''), 'gray');
+function classState(s) {
+  const t = todayIso();
+  if (!s.cur_id) return s.draft_id ? { k: 'draft', b: badge('Draft', 'amber') } : { k: 'none', b: badge('Unclassified', 'red') };
+  if (s.next_review_on && s.next_review_on < t) return { k: 'review', b: badge('Review overdue', 'red') };
+  if (s.next_review_on && s.next_review_on <= new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10)) return { k: 'review', b: badge('Review due', 'amber') };
+  return { k: 'ok', b: badge('Approved', 'green') };
+}
+async function tradeClass() {
+  const rows = (await fetchAll((a, b) => sb.from('v_trade_skus').select('*').eq('sku_status', 'active').order('sku').range(a, b)));
+  const st = rows.map(classState), cnt = (k) => st.filter((x) => x.k === k).length, itar = rows.filter((r) => r.jurisdiction === 'ITAR').length;
+  const card = (l, v, tone) => `<div class="rounded-xl bg-white border border-slate-200 p-3"><div class="text-xs text-slate-500">${l}</div><div class="text-2xl font-semibold ${tone || ''}">${v}</div></div>`;
+  const f = tradeF, vis = rows.map((r, i) => ({ r, s: st[i] })).filter(({ r, s }) => (!f.st || (f.st === 'itar' ? r.jurisdiction === 'ITAR' : f.st === 'draft' ? !!r.draft_id : s.k === f.st)) && (!f.q || [r.sku, r.description, r.supplier_name, r.eccn, r.hts_code].join(' ').toLowerCase().includes(f.q.toLowerCase())));
+  return {
+    html: `<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">${card('Active SKUs', rows.length)}${card('Unclassified', cnt('none'), cnt('none') ? 'text-red-600' : 'text-emerald-600')}${card('Drafts to approve', rows.filter((r) => r.draft_id).length, 'text-amber-600')}${card('Reviews due', cnt('review'), cnt('review') ? 'text-amber-600' : '')}${card('ITAR items', itar, itar ? 'text-red-600' : '')}</div>
+    <div class="flex flex-wrap items-center gap-2 mb-3"><input id="tcQ" value="${esc(f.q)}" placeholder="Search SKU, supplier, ECCN, HTS" class="rounded-lg border border-slate-300 p-2 text-sm w-64">
+      <select id="tcS" class="rounded-lg border border-slate-300 p-2 text-sm">${[['', 'All'], ['none', 'Unclassified'], ['draft', 'Drafts to approve'], ['review', 'Review due'], ['ok', 'Approved'], ['itar', 'ITAR']].map(([v, l]) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div class="ml-auto flex gap-2"><label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import classifications (CSV)<input id="tcCsv" type="file" accept=".csv" class="hidden"></label></div></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Supplier</th><th class="p-3">Export control</th><th class="p-3">HTS</th><th class="p-3">Origin</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${vis.map(({ r, s }) => `<tr><td class="p-3 font-medium">${esc(r.sku)}<div class="text-xs text-slate-400 font-normal">${esc((r.description || '').slice(0, 60))}</div></td><td class="p-3">${esc(r.supplier_name)}</td><td class="p-3">${controlBadge(r)}</td><td class="p-3 font-mono text-xs">${esc(r.hts_code || '')}</td><td class="p-3">${esc(r.country_of_origin || '')}</td><td class="p-3">${s.b}${r.draft_id && r.cur_id ? '<div class="text-xs text-amber-700">new version in draft</div>' : ''}</td>
+      <td class="p-3 text-right whitespace-nowrap">${r.draft_id ? btn('Approve', 'approveClass', { id: r.draft_id, sku: r.sku }) + ' ' : ''}${btn(r.draft_id ? 'Edit draft' : r.cur_id ? 'New version' : 'Classify', 'classify', { id: r.sku_id }, 'ghost')} ${r.cur_id || r.draft_id ? btn('History', 'classHist', { id: r.sku_id }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No SKUs match.</td></tr>'}</tbody></table></div>
+    <p class="text-xs text-slate-500 mt-3">An approved classification cannot be edited, only replaced by a new version, so the history is evidence. Jurisdiction is decided first (EAR or ITAR). ITAR determinations can only be approved by an admin.</p>`,
+    bind: () => { $('#tcQ').oninput = (e) => { tradeF.q = e.target.value; clearTimeout(tradeF.t); tradeF.t = setTimeout(renderTrade, 300); }; $('#tcS').onchange = (e) => { tradeF.st = e.target.value; renderTrade(); }; $('#tcCsv').onchange = (e) => { importClass(e.target.files[0]); e.target.value = ''; }; if (tradeF.q) { const q = $('#tcQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+  };
+}
+async function classifyModal(skuId) {
+  const [k, cur, dr] = await Promise.all([
+    sb.from('skus').select('id,sku,description,supplier_id,supplier:parties(name)').eq('id', skuId).single(),
+    sb.from('classifications').select('*').eq('sku_id', skuId).eq('is_current', true).maybeSingle(),
+    sb.from('classifications').select('*').eq('sku_id', skuId).in('status', ['requested', 'received', 'under_review']).order('version', { ascending: false }).limit(1)]);
+  if (k.error) return toast(k.error.message);
+  const docs = await sb.from('documents').select('id,title,doc_type').or(`sku_id.eq.${skuId},party_id.eq.${k.data.supplier_id}`).neq('status', 'rejected').order('created_at', { ascending: false }).limit(60);
+  const draft = dr.data?.[0], c = draft || cur.data || {}, isNew = !draft;
+  const sel = (id, opts, v) => `<select id="${id}" class="${inp}">${opts.map(([val, l]) => `<option value="${val}" ${String(v ?? '') === val ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  const tri = (v) => (v === true ? 'true' : v === false ? 'false' : '');
+  modal(`<h3 class="text-lg font-semibold">${draft ? 'Edit draft classification' : cur.data ? 'New classification version' : 'Classify'}: ${esc(k.data.sku)}</h3>
+    <p class="text-sm text-slate-500">${esc(k.data.description || '')} · ${esc(k.data.supplier?.name)}</p>
+    <div class="mt-3 max-h-[62vh] overflow-auto pr-1 grid sm:grid-cols-2 gap-x-4">
+      <label class="block mt-2 text-sm">Jurisdiction (decide this first)${sel('cJur', [['', 'Choose…'], ['EAR', 'EAR (Commerce)'], ['ITAR', 'ITAR (State, USML)'], ['EU', 'EU dual-use'], ['other', 'Other']], c.jurisdiction)}</label>
+      <label class="block mt-2 text-sm">Source of this determination${sel('cSrc', [['', 'Choose…'], ['supplier_stated', 'Supplier stated'], ['ccats', 'CCATS from BIS'], ['self_classified', 'Self-classified'], ['consultant', 'Consultant'], ['other', 'Other']], c.source)}</label>
+      <label class="block mt-2 text-sm">ECCN (EAR, or EAR99)<input id="cEccn" value="${esc(c.eccn || '')}" class="${inp}" placeholder="e.g. 5A992.c or EAR99"></label>
+      <label class="block mt-2 text-sm">USML category (ITAR)<input id="cUsml" value="${esc(c.usml_category || '')}" class="${inp}" placeholder="e.g. XI(a)"></label>
+      <label class="block mt-2 text-sm">EU dual-use number<input id="cEu" value="${esc(c.eu_dual_use_no || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Other control number (e.g. German AL)<input id="cOth" value="${esc(c.other_control_no || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">EAR reason for control<input id="cRfc" value="${esc(c.ear_reason_for_control || '')}" class="${inp}" placeholder="e.g. AT, NS"></label>
+      <label class="block mt-2 text-sm">Licence exception notes<input id="cLex" value="${esc(c.license_exception_notes || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Encryption${sel('cEnc', [['', 'Unknown'], ['true', 'Yes'], ['false', 'No']], tri(c.encryption_flag))}</label>
+      <label class="block mt-2 text-sm">Encryption notes<input id="cEncN" value="${esc(c.encryption_notes || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">GNSS / positioning${sel('cGnss', [['', 'Unknown'], ['true', 'Yes'], ['false', 'No']], tri(c.gnss_flag))}</label>
+      <label class="block mt-2 text-sm">GNSS notes<input id="cGnssN" value="${esc(c.gnss_notes || '')}" class="${inp}"></label>
+      <div class="sm:col-span-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Import</div>
+      <label class="block mt-2 text-sm">HTS code<input id="cHts" value="${esc(c.hts_code || '')}" class="${inp}" placeholder="e.g. 8537.10.9170"></label>
+      <label class="block mt-2 text-sm">Schedule B (export)<input id="cSchB" value="${esc(c.schedule_b || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Country of origin (2 letters)<input id="cCoo" value="${esc(c.country_of_origin || '')}" maxlength="2" class="${inp} uppercase"></label>
+      <label class="block mt-2 text-sm">Duty rate note<input id="cDuty" value="${esc(c.duty_rate_note || '')}" class="${inp}" placeholder="e.g. 2.7% general rate"></label>
+      <div class="sm:col-span-2 mt-2 text-sm">Tariff programs that apply (as confirmed by your broker or counsel)<div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">${TARIFFS.map((t) => `<label class="text-sm flex items-center gap-1.5"><input type="checkbox" class="cTp" value="${esc(t)}" ${(c.tariff_programs || []).includes(t) ? 'checked' : ''}> ${esc(t)}</label>`).join('')}</div></div>
+      <label class="block mt-2 text-sm sm:col-span-2">Tariff notes<input id="cTn" value="${esc(c.tariff_notes || '')}" class="${inp}"></label>
+      <label class="block mt-4 text-sm sm:col-span-2">Evidence document (optional)<select id="cDoc" class="${inp}"><option value="">None</option>${(docs.data || []).map((d) => `<option value="${d.id}" ${c.source_document_id === d.id ? 'selected' : ''}>${esc(d.title)}</option>`).join('')}</select></label>
+      <label class="block mt-2 text-sm sm:col-span-2">Rationale (required to approve: how was this decided?)<textarea id="cRat" rows="3" class="${inp}">${esc(c.rationale || '')}</textarea></label>
+      <label class="block mt-2 text-sm">Next review on<input id="cRev" type="date" value="${esc(c.next_review_on || '')}" class="${inp}"></label>
+    </div>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex flex-wrap justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save draft', 'saveClass', { sku: skuId, draft: draft?.id || '', ap: '0' }, 'ghost')}${btn('Save and approve', 'saveClass', { sku: skuId, draft: draft?.id || '', ap: '1' })}</div>`, true);
+}
+async function saveClassification({ sku, draft, ap }) {
+  const v = (id) => $(id).value.trim() || null, coo = ($('#cCoo').value.trim() || '').toUpperCase() || null, tri = (id) => ($(id).value === '' ? null : $(id).value === 'true');
+  if (coo && !/^[A-Z]{2}$/.test(coo)) return ($('#fErr').textContent = 'Country of origin must be a 2-letter code.');
+  const row = { jurisdiction: v('#cJur'), source: v('#cSrc'), eccn: v('#cEccn'), usml_category: v('#cUsml'), eu_dual_use_no: v('#cEu'), other_control_no: v('#cOth'), ear_reason_for_control: v('#cRfc'), license_exception_notes: v('#cLex'),
+    encryption_flag: tri('#cEnc'), encryption_notes: v('#cEncN'), gnss_flag: tri('#cGnss'), gnss_notes: v('#cGnssN'), hts_code: v('#cHts'), schedule_b: v('#cSchB'), country_of_origin: coo, duty_rate_note: v('#cDuty'),
+    tariff_programs: [...document.querySelectorAll('.cTp:checked')].map((x) => x.value), tariff_notes: v('#cTn'), source_document_id: v('#cDoc'), rationale: v('#cRat'), next_review_on: v('#cRev') };
+  const r = draft ? await sb.from('classifications').update(row).eq('id', draft).select('id').single() : await sb.from('classifications').insert({ sku_id: sku, status: 'under_review', requested_on: todayIso(), ...row }).select('id').single();
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  if (ap === '1') {
+    const a = await sb.rpc('approve_classification', { p_id: r.data.id });
+    if (a.error) { renderTrade(); return modal(`<h3 class="text-lg font-semibold">Saved as a draft</h3><p class="text-sm mt-2 text-red-700">It could not be approved: ${esc(a.error.message)}</p><div class="mt-4 flex justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${btn('Edit draft', 'classify', { id: sku })}</div>`); }
+    toast('Approved');
+  } else toast('Draft saved');
+  closeModal(); renderTrade();
+}
+async function classHistory(skuId) {
+  const { data, error } = await sb.from('classifications').select('version,status,jurisdiction,eccn,usml_category,eu_dual_use_no,other_control_no,hts_code,country_of_origin,source,rationale,approved_on,created_at').eq('sku_id', skuId).order('version', { ascending: false });
+  if (error) return toast(error.message);
+  modal(`<h3 class="text-lg font-semibold">Classification history</h3><div class="mt-3 max-h-[60vh] overflow-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">v</th><th>Status</th><th>Control</th><th>HTS</th><th>Origin</th><th>Source</th><th>Approved</th></tr></thead><tbody>${data.map((c) => `<tr class="border-t border-slate-100 align-top"><td class="py-1.5">${c.version}</td><td>${esc(c.status.replace('_', ' '))}</td><td>${esc([c.jurisdiction, c.eccn || c.usml_category || c.eu_dual_use_no || c.other_control_no].filter(Boolean).join(' · '))}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td><td>${esc((c.source || '').replace('_', ' '))}</td><td>${c.approved_on ? fmt(c.approved_on) : ''}</td></tr>${c.rationale ? `<tr><td></td><td colspan="6" class="pb-2 text-xs text-slate-500">${esc(c.rationale.slice(0, 400))}</td></tr>` : ''}`).join('')}</tbody></table></div><div class="mt-4 text-right">${btn('Close', 'close')}</div>`, true);
+}
+async function importClass(file) {
+  if (!file) return;
+  const all = parseCsvText(await file.text()), head = (all[0] || []).map((h) => String(h).toLowerCase().replace(/[^a-z]/g, '')), ix = (...k) => head.findIndex((h) => k.includes(h));
+  const iS = ix('sku', 'partnumber', 'item'), iJ = ix('jurisdiction'), iE = ix('eccn'), iU = ix('usml', 'usmlcategory'), iH = ix('hts', 'htscode', 'hs'), iO = ix('origin', 'coo', 'countryoforigin'), iSr = ix('source'), iR = ix('rationale', 'notes');
+  if (iS < 0) return toast('The CSV needs a "sku" column. Optional: jurisdiction, eccn, usml, hts, origin, source, rationale.');
+  const sk = await fetchAll((a, b) => sb.from('skus').select('id,sku').range(a, b)), map = new Map(sk.map((s) => [s.sku.toLowerCase(), s.id]));
+  const SRC = new Set(['supplier_stated', 'ccats', 'self_classified', 'consultant', 'other']), rows = [], bad = [];
+  for (const r of all.slice(1)) {
+    const code = String(r[iS] || '').trim(), id = map.get(code.toLowerCase()); if (!code) continue; if (!id) { bad.push(code); continue; }
+    const g = (i) => (i >= 0 ? String(r[i] ?? '').trim() || null : null), jur = (g(iJ) || '').toUpperCase(), coo = (g(iO) || '').toUpperCase(), src = (g(iSr) || '').toLowerCase().replace(/\s+/g, '_');
+    rows.push({ sku_id: id, status: 'under_review', requested_on: todayIso(), jurisdiction: ['EAR', 'ITAR', 'EU'].includes(jur) ? jur : jur ? 'other' : null, eccn: g(iE), usml_category: g(iU), hts_code: g(iH), country_of_origin: /^[A-Z]{2}$/.test(coo) ? coo : null, source: SRC.has(src) ? src : null, rationale: g(iR) });
+  }
+  let n = 0; for (let i = 0; i < rows.length; i += 100) { const r = await sb.from('classifications').insert(rows.slice(i, i + 100)); if (r.error) return modal(`<p class="text-sm text-red-700">${esc(r.error.message)}</p><p class="text-sm mt-2">${n} drafts were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); n += Math.min(100, rows.length - i); }
+  modal(`<h3 class="text-lg font-semibold">${n} draft${n === 1 ? '' : 's'} created</h3><p class="text-sm text-slate-600 mt-2">They are drafts, not approvals. Open each one to add the rationale and approve it.</p>${bad.length ? `<p class="text-xs text-amber-700 mt-2">Skipped, no matching SKU: ${esc([...new Set(bad)].slice(0, 20).join(', '))}</p>` : ''}<div class="mt-4 text-right">${btn('OK', 'close')}</div>`); renderTrade();
+}
+
+// ---- orders -------------------------------------------------------------------------------
+async function tradeOrders() {
+  const f = tradeF.os || '';
+  let q = sb.from('transactions').select('id,reference,transaction_date,destination_country,status,parties:transaction_parties(role,party:parties(name)),lines:transaction_lines(id)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(300);
+  if (f) q = q.eq('status', f);
+  const { data, error } = await q; if (error) throw error;
+  return {
+    html: `<div class="flex flex-wrap items-center gap-2 mb-3"><select id="orS" class="rounded-lg border border-slate-300 p-2 text-sm">${[['', 'All orders'], ['pending', 'Not screened'], ['hold', 'On hold'], ['cleared', 'Cleared'], ['blocked', 'Blocked']].map(([v, l]) => `<option value="${v}" ${f === v ? 'selected' : ''}>${l}</option>`).join('')}</select><div class="ml-auto">${btn('+ New order', 'newOrder')}</div></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Order</th><th class="p-3">Date</th><th class="p-3">Customer</th><th class="p-3">Destination</th><th class="p-3">Items</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${data.map((t) => `<tr><td class="p-3 font-medium">${esc(t.reference)}</td><td class="p-3">${fmt(t.transaction_date)}</td><td class="p-3">${esc(t.parties.find((p) => p.role === 'customer')?.party?.name || '')}</td><td class="p-3">${esc(t.destination_country || '')}</td><td class="p-3">${t.lines.length}</td><td class="p-3">${badge(ORDER_LABEL[t.status], ORDER_TONE[t.status])}</td><td class="p-3 text-right">${btn('Open', 'openOrder', { id: t.id }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No orders yet. Add an order before it ships so its parties, destination and items can be screened and the decision recorded.</td></tr>'}</tbody></table></div>`,
+    bind: () => { $('#orS').onchange = (e) => { tradeF.os = e.target.value; renderTrade(); }; }
+  };
+}
+async function newOrderModal() {
+  const [ps, sk] = await Promise.all([sb.from('parties').select('id,name,roles,country').eq('is_active', true).order('name'), fetchAll((a, b) => sb.from('skus').select('id,sku,description').eq('status', 'active').order('sku').range(a, b))]);
+  if (ps.error) return toast(ps.error.message);
+  const others = ps.data.filter((p) => !(p.roles.length === 1 && p.roles[0] === 'supplier'));
+  if (!others.some((p) => p.roles.includes('customer'))) return modal(`<p class="text-sm">Add the customer first under <b>Customers &amp; ship-to</b>, then create the order.</p><div class="mt-4 flex justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${btn('Go there', 'tradeTab', { v: 'parties' })}</div>`);
+  const roleSel = (id, role, label, req) => `<label class="block mt-2 text-sm">${label}${req ? ' *' : ''}<select id="${id}" class="${inp}"><option value="">${req ? 'Choose…' : 'None'}</option>${others.filter((p) => p.roles.includes(role)).map((p) => `<option value="${p.id}">${esc(p.name)}${p.country ? ' (' + esc(p.country) + ')' : ''}</option>`).join('')}</select></label>`;
+  window.__skuMap = new Map(sk.map((s) => [s.sku.toLowerCase(), s.id]));
+  modal(`<h3 class="text-lg font-semibold">New order</h3>
+    <div class="mt-2 max-h-[62vh] overflow-auto pr-1 grid sm:grid-cols-2 gap-x-4">
+      <label class="block mt-2 text-sm">Order or shipment number *<input id="oRef" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Date<input id="oDate" type="date" value="${todayIso()}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Destination country * (2 letters)<input id="oDest" maxlength="2" class="${inp} uppercase"></label><div></div>
+      ${roleSel('oCust', 'customer', 'Customer', true)}${roleSel('oShip', 'ship_to', 'Ship-to')}${roleSel('oEnd', 'end_user', 'End user')}${roleSel('oCons', 'consignee', 'Consignee')}${roleSel('oFwd', 'forwarder', 'Freight forwarder')}
+      <div class="sm:col-span-2 mt-4 text-sm font-medium">Items</div>
+      <datalist id="skuList">${sk.map((s) => `<option value="${esc(s.sku)}">${esc((s.description || '').slice(0, 50))}</option>`).join('')}</datalist>
+      <div id="oLines" class="sm:col-span-2">${lineRow()}${lineRow()}</div>
+      <div class="sm:col-span-2 mt-2">${btn('+ Add line', 'addLine', {}, 'ghost')}</div>
+    </div>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create order', 'saveOrder')}</div>`, true);
+}
+const lineRow = () => `<div class="flex gap-2 mt-2 oLine"><input list="skuList" class="lnSku flex-1 rounded-lg border border-slate-300 p-2 text-sm" placeholder="SKU"><input type="number" min="1" value="1" class="lnQty w-24 rounded-lg border border-slate-300 p-2 text-sm"></div>`;
+async function saveOrderForm() {
+  const val = (id) => $(id).value.trim(), ref = val('#oRef'), dest = val('#oDest').toUpperCase(), cust = val('#oCust');
+  if (!ref) return ($('#fErr').textContent = 'Enter the order number.');
+  if (!/^[A-Z]{2}$/.test(dest)) return ($('#fErr').textContent = 'Destination must be a 2-letter country code, for example DE.');
+  if (!cust) return ($('#fErr').textContent = 'Choose the customer.');
+  const lines = new Map(), unknown = [];
+  for (const row of document.querySelectorAll('.oLine')) {
+    const code = row.querySelector('.lnSku').value.trim(); if (!code) continue; const id = window.__skuMap.get(code.toLowerCase());
+    if (!id) { unknown.push(code); continue; } lines.set(id, (lines.get(id) || 0) + (Number(row.querySelector('.lnQty').value) || 1));
+  }
+  if (unknown.length) return ($('#fErr').textContent = 'Unknown SKU: ' + unknown.join(', '));
+  if (!lines.size) return ($('#fErr').textContent = 'Add at least one item.');
+  const t = await sb.from('transactions').insert({ reference: ref, transaction_date: val('#oDate') || todayIso(), destination_country: dest }).select('id').single();
+  if (t.error) return ($('#fErr').textContent = /duplicate|unique/i.test(t.error.message) ? 'That order number already exists.' : t.error.message);
+  const roles = [['customer', cust], ['ship_to', val('#oShip')], ['end_user', val('#oEnd')], ['consignee', val('#oCons')], ['intermediate', ''], ['forwarder', val('#oFwd')]].filter(([, p]) => p).map(([role, party_id]) => ({ transaction_id: t.data.id, party_id, role }));
+  const a = await sb.from('transaction_parties').insert(roles), b = await sb.from('transaction_lines').insert([...lines].map(([sku_id, quantity]) => ({ transaction_id: t.data.id, sku_id, quantity })));
+  if (a.error || b.error) return ($('#fErr').textContent = (a.error || b.error).message);
+  toast('Order created'); renderTrade(); openOrder(t.data.id);
+}
+async function openOrder(id) {
+  const [t, cr] = await Promise.all([
+    sb.from('transactions').select('id,reference,transaction_date,destination_country,status,screened_at,hold_reasons,decision_notes,decided_at,parties:transaction_parties(role,party:parties(name,country)),lines:transaction_lines(quantity,sku_id,sku:skus(sku,description))').eq('id', id).single(),
+    sb.from('country_rules').select('country,level,name')]);
+  if (t.error) return toast(t.error.message);
+  const o = t.data, ids = o.lines.map((l) => l.sku_id), cls = ids.length ? (await sb.from('v_trade_skus').select('sku_id,jurisdiction,eccn,usml_category,cur_id,hts_code,country_of_origin').in('sku_id', ids)).data || [] : [];
+  const cm = new Map(cls.map((c) => [c.sku_id, c])), rule = (cr.data || []).find((r) => r.country === o.destination_country), hr = o.hold_reasons || {}, holds = hr.holds || [], notes = hr.notes || [];
+  const ROLE = Object.fromEntries(PARTY_ROLES.concat([['intermediate', 'Intermediate']]));
+  modal(`<div class="flex items-center gap-3"><h3 class="text-lg font-semibold">Order ${esc(o.reference)}</h3>${badge(ORDER_LABEL[o.status], ORDER_TONE[o.status])}</div>
+    <p class="text-sm text-slate-500 mt-1">${fmt(o.transaction_date)} · to ${esc(o.destination_country || '?')} ${rule ? badge(rule.level, rule.level === 'watch' ? 'amber' : 'red') : ''}${o.screened_at ? ' · screened ' + fmt(o.screened_at) : ' · not screened yet'}</p>
+    <div class="mt-3 max-h-[56vh] overflow-auto pr-1">
+    ${holds.length ? `<div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800"><b>Holds</b><ul class="list-disc pl-5 mt-1">${holds.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+    ${notes.length ? `<div class="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900"><b>Check before shipping</b><ul class="list-disc pl-5 mt-1">${notes.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
+    ${o.decision_notes ? `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>Decision (${fmt(o.decided_at)}):</b> ${esc(o.decision_notes)}</div>` : ''}
+    <h4 class="font-semibold mt-4">Parties</h4><table class="w-full text-sm mt-1"><tbody>${o.parties.map((p) => `<tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500 w-32">${esc(ROLE[p.role] || p.role)}</td><td>${esc(p.party?.name)}</td><td>${esc(p.party?.country || '')}</td></tr>`).join('')}</tbody></table>
+    <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">SKU</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table></div>
+    <p class="text-xs text-slate-500 mt-3">This screens parties, the destination and item classifications, and records the decision. It does not decide whether a licence is required.</p>
+    <p id="fErr" class="text-xs text-red-600 mt-1 min-h-4"></p>
+    <div class="mt-2 flex flex-wrap justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${o.status !== 'blocked' ? btn(o.screened_at ? 'Re-screen' : 'Screen order', 'screenOrder', { id }, o.status === 'hold' || o.status === 'pending' ? 'primary' : 'ghost') : ''}${o.status === 'hold' ? btn('Release…', 'orderDecide', { id, d: 'cleared' }, 'ghost') : ''}${o.status !== 'blocked' ? btn('Block…', 'orderDecide', { id, d: 'blocked' }, 'danger') : ''}</div>`, true);
+}
+
+// ---- customers, ship-to and other parties ------------------------------------------------
+async function tradeParties() {
+  const [pa, st] = await Promise.all([sb.from('parties').select('id,name,roles,country,public_company,is_active').order('name'), sb.from('v_party_status').select('party_id,last_screened_at,open_hits,confirmed_hits')]);
+  if (pa.error) throw pa.error;
+  const sm = new Map((st.data || []).map((s) => [s.party_id, s])), rows = pa.data.filter((p) => !(p.roles.length === 1 && p.roles[0] === 'supplier'));
+  return {
+    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Everyone you ship to, sell to or route through. Suppliers are managed on the Suppliers tab.</p><div class="ml-auto">${btn('+ Add party', 'editParty', { id: '' })}</div></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Name</th><th class="p-3">Roles</th><th class="p-3">Country</th><th class="p-3">Public co.</th><th class="p-3">Screening</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${rows.map((p) => { const s = sm.get(p.id) || {}; return `<tr${p.is_active ? '' : ' class="text-slate-400"'}><td class="p-3 font-medium">${esc(p.name)}${p.is_active ? '' : ' (inactive)'}</td><td class="p-3">${esc(p.roles.map((r) => (PARTY_ROLES.find((x) => x[0] === r) || [0, r])[1]).join(', '))}</td><td class="p-3">${esc(p.country || '')}</td><td class="p-3">${p.public_company ? 'Yes' : ''}</td><td class="p-3">${s.confirmed_hits > 0 ? badge('Confirmed match', 'red') : s.open_hits > 0 ? badge(s.open_hits + ' to review', 'amber') : s.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray')}</td><td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editParty', { id: p.id }, 'ghost')}</td></tr>`; }).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No customers or ship-to parties yet.</td></tr>'}</tbody></table></div>`
+  };
+}
+async function partyModal(id) {
+  const c = id ? (await sb.from('parties').select('*').eq('id', id).single()).data || {} : {};
+  modal(`<h3 class="text-lg font-semibold">${id ? 'Edit party' : 'Add party'}</h3>
+    <label class="block mt-3 text-sm">Name *<input id="pName" value="${esc(c.name || '')}" class="${inp}"></label>
+    <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">Type<select id="pKind" class="${inp}"><option value="entity" ${c.kind !== 'individual' ? 'selected' : ''}>Company</option><option value="individual" ${c.kind === 'individual' ? 'selected' : ''}>Individual</option></select></label>
+    <label class="block mt-3 text-sm">Country (2 letters)<input id="pCountry" value="${esc(c.country || '')}" maxlength="2" class="${inp} uppercase"></label></div>
+    <div class="mt-3 text-sm">Roles<div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">${PARTY_ROLES.map(([r, l]) => `<label class="flex items-center gap-1.5"><input type="checkbox" class="pRole" value="${r}" ${(c.roles || (id ? [] : ['customer'])).includes(r) ? 'checked' : ''}> ${l}</label>`).join('')}</div></div>
+    <label class="block mt-3 text-sm">Address<input id="pAddr" value="${esc(c.address_line || '')}" class="${inp}"></label>
+    <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">City<input id="pCity" value="${esc(c.city || '')}" class="${inp}"></label><label class="block mt-3 text-sm">Postal code<input id="pPost" value="${esc(c.postal_code || '')}" class="${inp}"></label></div>
+    <label class="mt-3 text-sm flex items-center gap-2"><input id="pPub" type="checkbox" ${c.public_company ? 'checked' : ''}> Publicly traded company</label>
+    ${id ? `<label class="mt-2 text-sm flex items-center gap-2"><input id="pAct" type="checkbox" ${c.is_active !== false ? 'checked' : ''}> Active</label>` : ''}
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveParty', { id })}</div>`);
+}
+async function saveParty(id) {
+  const name = $('#pName').value.trim(), country = $('#pCountry').value.trim().toUpperCase(), roles = [...document.querySelectorAll('.pRole:checked')].map((x) => x.value);
+  if (!name) return ($('#fErr').textContent = 'Name is required.'); if (country && !/^[A-Z]{2}$/.test(country)) return ($('#fErr').textContent = 'Country must be a 2-letter code.'); if (!roles.length) return ($('#fErr').textContent = 'Choose at least one role.');
+  const row = { name, kind: $('#pKind').value, roles, country: country || null, address_line: $('#pAddr').value.trim() || null, city: $('#pCity').value.trim() || null, postal_code: $('#pPost').value.trim() || null, public_company: $('#pPub').checked };
+  if (id) row.is_active = $('#pAct').checked;
+  const r = id ? await sb.from('parties').update(row).eq('id', id) : await sb.from('parties').insert(row);
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  closeModal(); toast('Saved'); renderTrade();
+}
+
+// ---- customs and export records ------------------------------------------------------------
+async function tradeRecords() {
+  const { data, error } = await sb.from('documents').select('id,title,doc_type,issued_on,retain_until,file_name,storage_path,transaction:transactions(reference),type:document_types(name)').in('doc_type', CUSTOMS_TYPES).order('created_at', { ascending: false }).limit(300);
+  if (error) throw error;
+  return {
+    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Entry summaries, invoices, export filings and licences. Files cannot be changed or deleted, and each shows how long to keep it.</p><div class="ml-auto">${btn('+ Upload record', 'uploadRecord')}</div></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Record</th><th class="p-3">Type</th><th class="p-3">Order</th><th class="p-3">Date</th><th class="p-3">Keep until</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${data.map((d) => `<tr><td class="p-3 font-medium">${esc(d.title)}</td><td class="p-3">${esc(d.type?.name || d.doc_type)}</td><td class="p-3">${esc(d.transaction?.reference || '')}</td><td class="p-3">${fmt(d.issued_on)}</td><td class="p-3">${fmt(d.retain_until)}</td><td class="p-3 text-right">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No records yet.</td></tr>'}</tbody></table></div>`
+  };
+}
+async function uploadRecordModal() {
+  const [ty, tx] = await Promise.all([sb.from('document_types').select('code,name').in('code', CUSTOMS_TYPES).order('sort_order'), sb.from('transactions').select('id,reference').order('created_at', { ascending: false }).limit(200)]);
+  if (ty.error) return toast(ty.error.message);
+  modal(`<h3 class="text-lg font-semibold">Upload customs or export record</h3>
+    <label class="block mt-3 text-sm">Type<select id="rType" class="${inp}">${ty.data.map((t) => `<option value="${t.code}">${esc(t.name)}</option>`).join('')}</select></label>
+    <label class="block mt-3 text-sm">File<input id="rFile" type="file" class="${inp}"></label>
+    <label class="block mt-3 text-sm">Entry or shipment date (sets the keep-until date)<input id="rDate" type="date" value="${todayIso()}" class="${inp}"></label>
+    <label class="block mt-3 text-sm">Related order (optional)<select id="rTx" class="${inp}"><option value="">None</option>${(tx.data || []).map((t) => `<option value="${t.id}">${esc(t.reference)}</option>`).join('')}</select></label>
+    <label class="block mt-3 text-sm">Note (optional)<input id="rNote" class="${inp}"></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Upload', 'saveRecord')}</div>`);
+}
+async function saveRecord() {
+  const f = $('#rFile').files[0]; if (!f) return ($('#fErr').textContent = 'Choose a file.');
+  if (f.size > 50 * 1024 * 1024) return ($('#fErr').textContent = 'Files must be under 50 MB.');
+  $('#fErr').textContent = 'Uploading…';
+  const id = crypto.randomUUID(), buf = await f.arrayBuffer(), path = `customs/${id}/${f.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`, type = $('#rType'), typeName = type.options[type.selectedIndex].text;
+  const up = await sb.storage.from('compliance-docs').upload(path, f, { upsert: false, contentType: f.type || undefined }); if (up.error) return ($('#fErr').textContent = up.error.message);
+  const r = await sb.from('documents').insert({ id, doc_type: type.value, title: `${typeName} - ${f.name}`, transaction_id: $('#rTx').value || null, issued_on: $('#rDate').value || null, storage_path: path, file_name: f.name, mime_type: f.type || null, size_bytes: f.size, sha256: await sha256(buf), source: 'internal', notes: $('#rNote').value.trim() || null });
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  closeModal(); toast('Record saved'); renderTrade();
+}
+
+// ---- destination rules -----------------------------------------------------------------------
+async function tradeDest() {
+  const { data, error } = await sb.from('country_rules').select('*').order('country'); if (error) throw error; const admin = isAdminUser();
+  return {
+    html: `<p class="text-sm text-slate-500 mb-3">Countries that put an order on hold when it is screened. This list is intentionally empty to start: your admin and counsel decide what belongs here, so a wrong default can never give false comfort.</p>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto mb-4"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Country</th><th class="p-3">Level</th><th class="p-3">Notes</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${data.map((r) => `<tr><td class="p-3 font-medium">${esc(r.country)}${r.name ? ' · ' + esc(r.name) : ''}</td><td class="p-3">${badge(r.level, r.level === 'watch' ? 'amber' : 'red')}</td><td class="p-3">${esc(r.notes || '')}</td><td class="p-3 text-right">${admin ? btn('Remove', 'delRule', { c: r.country }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-6 text-center text-slate-500">No rules yet.</td></tr>'}</tbody></table></div>
+    ${admin ? `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="font-medium mb-2">Add or change a rule</div><div class="flex flex-wrap gap-2 items-end">
+      <label class="text-sm">Country<input id="dCc" maxlength="2" class="block mt-1 w-20 rounded-lg border border-slate-300 p-2 uppercase"></label>
+      <label class="text-sm">Level<select id="dLv" class="block mt-1 rounded-lg border border-slate-300 p-2"><option value="embargoed">Embargoed (hold)</option><option value="restricted">Restricted (hold)</option><option value="watch">Watch (note only)</option></select></label>
+      <label class="text-sm flex-1 min-w-[12rem]">Notes<input id="dNote" class="block mt-1 w-full rounded-lg border border-slate-300 p-2"></label>${btn('Save rule', 'saveRule')}</div><p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p></div>` : '<p class="text-xs text-slate-500">Only an admin can change these rules.</p>'}`
+  };
+}
+
 // ---- audit trail ---------------------------------------------------------------
-const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'SKU', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Transaction', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
+const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'SKU', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Order', transaction_lines: 'Order item', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
 const AUD_ACT = { insert: 'Created', update: 'Changed', delete: 'Deleted' };
 let auditF = { from: '', to: '', area: '', action: '', q: '' }, auditRows = [];
 const auditLabel = (r) => { const d = r.new_data || r.old_data || {}; return d.title || d.name || d.subject || d.sku || d.matched_name || d.reference || d.email || d.key || d.code || d.file_name || (d.case_no ? '#' + d.case_no : '') || ''; };
@@ -646,6 +1071,73 @@ const actions = {
     toast(clear ? 'Decision cleared' : 'Saved'); const f = lastFindings; if (view === 'minerals') renderMinerals(); showFindings(f.declId, f.docId);
   },
   back: () => { const f = lastFindings; showFindings(f.declId, f.docId); },
+  commitCsl: () => commitCsl(),
+  forceCsl: () => finishCsl(true),
+  cancelCsl: async () => { if (cslCtx) await sb.rpc('fail_sanctions_load', { p_load: cslCtx.loadId, p_reason: 'Cancelled by user' }); cslCtx = null; closeModal(); renderScreening(); },
+  hitReview: ({ id }) => hitReviewModal(id),
+  doHit: async ({ id }) => {
+    const note = $('#htN').value.trim(), d = $('#htD').value;
+    if (!note) return ($('#fErr').textContent = 'A written reason is required.');
+    if (d === 'confirmed' && !confirm('Confirm this as a true match? It will be recorded as a confirmed restricted party and counted in the ownership (50 percent) checks.')) return;
+    const r = await sb.rpc('adjudicate_hit', { p_hit: id, p_decision: d, p_notes: note });
+    if (r.error) return ($('#fErr').textContent = r.error.message);
+    closeModal(); toast(d === 'cleared' ? 'Cleared' : 'Confirmed'); route();
+  },
+  screenNow: async ({ id }) => {
+    toast('Screening…');
+    const r = await sb.rpc('screen_party', { p_party: id });
+    if (r.error) return toast(/No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Open the Screening tab and load one first.' : r.error.message);
+    const s = await sb.from('screenings').select('result').eq('id', r.data).single();
+    if (s.data?.result === 'clear') { toast('Screened: no matches.'); route(); } else { toast('Possible matches found. Opening Screening.'); view = 'screening'; route(); }
+  },
+  screenAllBtn: async () => {
+    modal(`<h3 class="text-lg font-semibold">Screening all parties</h3><p id="ldMsg" class="text-sm text-slate-600 mt-2">Starting…</p>`);
+    try {
+      const res = await screenAll('manual'); renderScreening();
+      modal(`<h3 class="text-lg font-semibold">Screening finished</h3><p class="text-sm mt-2">${res.n} part${res.n === 1 ? 'y' : 'ies'} screened. ${res.open ? `<b class="text-amber-700">${res.open} possible match${res.open > 1 ? 'es' : ''} to review.</b>` : 'No matches.'}</p>${res.skipped.length ? `<p class="text-xs text-red-600 mt-2">Not screened: ${esc(res.skipped.join('; '))}</p>` : ''}<div class="mt-4 text-right">${btn('Close', 'close')}</div>`);
+    } catch (e) { modal(`<p class="text-sm text-red-700">${esc(e.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
+  },
+  tradeTab: ({ v }) => { tradeTab = v; view = 'trade'; renderTrade(); },
+  goTrade: ({ t, id }) => { tradeTab = t; view = 'trade'; renderTrade(); if (id) openOrder(id); },
+  classify: ({ id }) => classifyModal(id),
+  saveClass: (d) => saveClassification(d),
+  classHist: ({ id }) => classHistory(id),
+  approveClass: async ({ id, sku }) => {
+    if (!confirm(`Approve the classification for ${sku}? The previous approved version (if any) will be retired.`)) return;
+    const a = await sb.rpc('approve_classification', { p_id: id });
+    if (a.error) return modal(`<h3 class="text-lg font-semibold">Not approved yet</h3><p class="text-sm mt-2 text-red-700">${esc(a.error.message)}</p><p class="text-sm text-slate-600 mt-2">Open the draft and complete it first.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    toast('Approved'); renderTrade();
+  },
+  newOrder: () => newOrderModal(),
+  addLine: () => $('#oLines').insertAdjacentHTML('beforeend', lineRow()),
+  saveOrder: () => saveOrderForm(),
+  openOrder: ({ id }) => openOrder(id),
+  screenOrder: async ({ id }) => {
+    toast('Screening order…');
+    const r = await sb.rpc('screen_transaction', { p_tx: id });
+    if (r.error) return ($('#fErr') ? ($('#fErr').textContent = /No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Load one on the Screening tab first.' : r.error.message) : toast(r.error.message));
+    if (view === 'trade') renderTrade(); else if (view === 'today') route(); openOrder(id);
+  },
+  orderDecide: ({ id, d }) => modal(`<h3 class="text-lg font-semibold">${d === 'cleared' ? 'Release this order' : 'Block this order'}</h3>
+    <p class="text-sm text-slate-600 mt-1">${d === 'cleared' ? 'Releasing records that a person reviewed the holds and decided the order may proceed. Orders with ITAR items can only be released by an admin, and orders with a confirmed list match cannot be released.' : 'A blocked order stays blocked, and re-screening will not release it.'}</p>
+    <label class="block mt-3 text-sm">Reason (required)<textarea id="odN" rows="4" class="${inp}"></textarea></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Back', 'openOrder', { id }, 'ghost')}${btn(d === 'cleared' ? 'Release' : 'Block', 'doOrderDecide', { id, d }, d === 'cleared' ? 'primary' : 'danger')}</div>`),
+  doOrderDecide: async ({ id, d }) => {
+    const note = $('#odN').value.trim(); if (!note) return ($('#fErr').textContent = 'A written reason is required.');
+    const r = await sb.rpc('release_transaction', { p_tx: id, p_decision: d, p_notes: note }); if (r.error) return ($('#fErr').textContent = r.error.message);
+    toast(d === 'cleared' ? 'Order released' : 'Order blocked'); if (view === 'trade') renderTrade(); else if (view === 'today') route(); openOrder(id);
+  },
+  editParty: ({ id }) => partyModal(id),
+  saveParty: ({ id }) => saveParty(id),
+  uploadRecord: () => uploadRecordModal(),
+  saveRecord: () => saveRecord(),
+  saveRule: async () => {
+    const cc = $('#dCc').value.trim().toUpperCase(); if (!/^[A-Z]{2}$/.test(cc)) return ($('#fErr').textContent = 'Enter a 2-letter country code.');
+    const r = await sb.from('country_rules').upsert({ country: cc, level: $('#dLv').value, notes: $('#dNote').value.trim() || null }, { onConflict: 'country' });
+    if (r.error) return ($('#fErr').textContent = r.error.message); toast('Rule saved'); renderTrade();
+  },
+  delRule: async ({ c }) => { if (!confirm(`Remove the rule for ${c}?`)) return; const r = await sb.from('country_rules').delete().eq('country', c); r.error ? toast(r.error.message) : (toast('Removed'), renderTrade()); },
   reread: async ({ id, doc }) => {
     const note = await askNote('Re-read this CMRT from the original file? The previous reading is replaced, and stays in the audit log.', false); if (note === null) return;
     const r = await sb.rpc('reset_cmrt_declaration', { p_declaration: id }); if (r.error) return toast(r.error.message);
@@ -848,7 +1340,7 @@ document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { con
 document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, review: renderReview, audit: renderAudit })[view](); }
+function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
