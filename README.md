@@ -1,2 +1,2 @@
 # conformality
-OFAC Sanctions Screening and Compliance Service
+OFAC Sanctions Screening and EAR/ITAR Export Compliance Service
