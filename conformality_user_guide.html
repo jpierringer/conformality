@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.0.0">
+<meta name="version" content="1.1.0">
 <title>Conformality User Guide</title>
 <style>
   :root { --bg:#f8fafc; --card:#fff; --ink:#0f172a; --muted:#475569; --line:#e2e8f0; --accent:#0f172a; --tip:#ecfdf5; --tipline:#a7f3d0; --warn:#fffbeb; --warnline:#fde68a; --code:#f1f5f9; }
@@ -20,6 +20,7 @@
   h1 { font-size:2rem; margin:0 0 4px; }
   h2 { font-size:1.45rem; margin:48px 0 8px; padding-top:12px; border-top:1px solid var(--line); }
   h3 { font-size:1.05rem; margin:24px 0 4px; }
+  h4 { font-size:.95rem; margin:18px 0 4px; }
   p { margin:8px 0; } ul,ol { padding-left:1.3rem; margin:8px 0; } li { margin:3px 0; }
   .lead { color:var(--muted); font-size:1.05rem; }
   .purpose { background:var(--card); border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:10px 14px; margin:12px 0; }
@@ -63,7 +64,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.0.0 · Updated 16 Oct 2026 · Applies to app version 1.0.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.1.0 · Updated 22 Oct 2026 · Applies to app version 1.1.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -234,7 +235,7 @@
   <tr><td><b>HTS code</b></td><td>Harmonized Tariff Schedule number used by customs to set the duty on imports.</td></tr>
   <tr><td><b>Country of origin</b></td><td>Where the product was made, for customs and tariff purposes.</td></tr>
 </table>
-<p>The Trade page has five sub-tabs.</p>
+<p>The Trade page has five sub-tabs: Classification, Orders, Customers &amp; ship-to, Customs records and Rules.</p>
 
 <h3>1. Classification</h3>
 <div class="purpose"><b>Purpose</b>Records the export-control and customs classification for each product, with who decided it, how, and when.</div>
@@ -250,17 +251,17 @@
 MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification letter</pre>
 
 <h3>2. Orders</h3>
-<div class="purpose"><b>Purpose</b>The pre-shipment check. Each order's parties, destination and items are screened, and a person records the decision.</div>
+<div class="purpose"><b>Purpose</b>The pre-shipment check and the <b>order file</b>. Each order's parties, destination and items are screened, the paperwork is checked, and a person records the decision. Click an order to open its order file.</div>
 <ol>
   <li><span class="btn">+ New order</span>: enter the order number, date, destination country (two letters), the customer, optional ship-to, end user, consignee and freight forwarder, and the items with quantities.</li>
   <li><span class="btn">Screen order</span> runs the checks and sets a status: <span class="b g">Cleared</span>, <span class="b a">On hold</span>, or stays <span class="b n">Not screened</span>.</li>
-  <li>If on hold, read the reasons, resolve them, then <span class="btn">Release…</span> (with a note) or <span class="btn">Block…</span>.</li>
+  <li>If on hold, read the reasons, fix them (for example attach a missing document), then <span class="btn">Release…</span> (with a written reason) or <span class="btn">Block…</span>. The hold list updates by itself whenever you record a licence decision, attach a document or change the order details.</li>
 </ol>
 <table>
-  <tr><th style="width:42%">Puts the order on hold</th><th>Shown as a note ("check before shipping")</th></tr>
+  <tr><th style="width:42%">Always puts the order on hold</th><th>Shown as a note ("check before shipping")</th></tr>
   <tr><td><ul>
     <li>No destination</li>
-    <li>Destination is embargoed or restricted (Destinations tab)</li>
+    <li>Destination is embargoed or restricted (Rules tab)</li>
     <li>A party has an open or confirmed list match</li>
     <li>No items on the order</li>
     <li>An item has no approved classification</li>
@@ -271,20 +272,65 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
     <li>EU or other jurisdiction</li>
     <li>Encryption or GNSS involved</li></ul></td></tr>
 </table>
-<p>An order with a confirmed or open list match cannot be released. ITAR orders can only be released by an admin. Re-screen after any change.</p>
-<div class="warn">Screening an order does <b>not</b> decide whether a licence is required. Notes such as "non-EAR99" are prompts to check with your compliance lead or freight forwarder before shipping.</div>
+<p>An order with a confirmed or open list match cannot be released. ITAR orders can only be released by an admin. Re-screen after changing parties or items. An order that a person has already released or blocked is not changed again automatically.</p>
+
+<h4>The order file</h4>
+<p>The order file gathers everything an auditor may ask for about one shipment. Open it from the order. It has:</p>
+<ul>
+  <li><b>Checklist.</b> Each item shows <span class="b g">Done</span> or <span class="b a">Missing</span> and what a missing item does: <b>Blocks shipping</b> (puts the order on hold), <b>Warns</b> (shown as a note) or <b>Tracked only</b> (recorded, never blocks). The levels are our starting assumptions, listed below, and an admin can change them on the Rules tab.</li>
+  <li><b>Licence determination.</b> A person records "No licence required (NLR)", "Licence required" or "Licence exception" and why. The app suggests <i>NLR – EAR99</i> only when every item is classified EAR99 and offers a sentence to copy onto the invoice. Any other control code (for example 3A991) is never decided by the app; a person decides.</li>
+  <li><b>Order details.</b> Customer purchase order number, date shipped, and whether this is a <b>US government contract</b>. For government contracts you also tick whether the <b>Trade Agreements Act (TAA)</b> or <b>Buy American Act (BAA)</b> applies and confirm the purchase order is a <b>FAR Part 12</b> (commercial products) order.</li>
+  <li><b>Attached documents.</b> Use <span class="btn">Attach</span> to add the purchase order, contract, certificate of origin, certificate of conformance, TAA/BAA certificate, invoice or shipping documents. Each is fingerprinted and cannot be changed afterwards.</li>
+  <li><b>Download order file</b> makes a zip with a summary page (classification as it was when screened, the screening record and list version, licence decision, end user statement, checklist), all attached files, and the online end user statement. <b>Print</b> prints the summary. The keep-until date is shown on the file.</li>
+</ul>
+<div class="warn">The app does <b>not</b> decide whether a licence is required, whether a product meets the TAA, or whether a purchase order really is FAR Part 12. It records the answer a person gives, with their name and the time, and holds the order until it is recorded. Domestic orders (destination United States) skip the licence and end user statement checks.</div>
+<p><b>Supplier certificates.</b> A certificate of origin or conformance you already received from a supplier must currently be attached to each order separately; there is no "reuse an existing document" button yet.</p>
 
 <h3>3. Customers &amp; ship-to</h3>
-<div class="purpose"><b>Purpose</b>The list of non-supplier parties: customers, ship-to addresses, end users, consignees and freight forwarders. They need to exist here so they can be put on orders and screened.</div>
-<p><span class="btn">+ Add party</span>: name, company or individual, country, one or more roles, address, and whether it is publicly traded. The <b>end user</b> is whoever finally uses the product, which may differ from the buyer. This matters for export rules. Deactivate a party instead of deleting it, so history is kept. Suppliers are managed on the Suppliers tab.</p>
+<div class="purpose"><b>Purpose</b>The list of non-supplier parties: customers, ship-to addresses, end users, consignees and freight forwarders. They need to exist here so they can be put on orders and screened. Customers also carry their <b>end user statement</b>.</div>
+<p><span class="btn">+ Add party</span>: name, company or individual, country, one or more roles, address, and whether it is publicly traded. The <b>end user</b> is whoever finally uses the product, which may differ from the buyer. This matters for export rules. Deactivate a party instead of deleting it, so history is kept. Suppliers are managed on the Suppliers tab. Use <span class="btn">Contact</span> to record the person at the customer who will sign; one contact per company is enough.</p>
+<h4>End user statement (EUS)</h4>
+<p>An <b>end user statement</b> is a signed paper in which our customer says who will use the products, where, and for what, and that they will not re-export them against export rules. We keep <b>one per customer</b>, valid for <b>12 months</b> (admin setting). The Customers table shows its state: <span class="b n">None</span>, <span class="b a">Requested</span>, <span class="b g">Valid</span> or <span class="b r">Expired</span>. Click <span class="btn">EUS</span> to:</p>
+<ul>
+  <li><b>Send signing link.</b> Creates a private link and an email draft. The customer's contact opens the page, reads the statement, types their name and job title, names the end user and end use, ticks the agreement box and presses <i>Sign</i>. We store the exact wording, time, internet address and a fingerprint (a SHA-256 hash that would change if anything were altered). <b>Assumption: a typed name with the agreement box is accepted as a digital signature.</b></li>
+  <li><b>Upload signed copy.</b> If the customer prefers to sign a PDF, upload it and enter who signed and the dates.</li>
+  <li><b>Revoke.</b> Cancels a statement with a reason. History is kept.</li>
+</ul>
+<div class="warn">The statement wording shipped with the app is a <b>draft</b>. Have counsel approve it, then paste the final text on the Rules tab. Each signed statement keeps the wording it was signed under.</div>
 
 <h3>4. Customs records</h3>
 <div class="purpose"><b>Purpose</b>A filing cabinet for import and export paperwork, with automatic retention dates. Customs authorities can ask for these documents years later.</div>
-<p><span class="btn">+ Upload record</span>. Types: entry summary, commercial invoice, packing list, transport document, export filing, broker file, export licence. Optionally link it to an order. The <b>keep until</b> date is calculated from the document date using the retention period (default five years, an admin setting). Files cannot be changed or deleted once stored; each is fingerprinted.</p>
+<p><span class="btn">+ Upload record</span>. Types: entry summary, commercial invoice, packing list, transport document, export filing, broker file, export licence, purchase order, contract, certificates of origin and of conformance, TAA/BAA certificate and end user statement. Optionally link it to an order. The <b>keep until</b> date is calculated from the document date using the retention period (default five years, an admin setting); for documents on an order it counts from the later of the order date and the ship date. Files cannot be changed or deleted once stored; each is fingerprinted.</p>
 
-<h3>5. Destinations</h3>
-<div class="purpose"><b>Purpose</b>A list of countries that trigger a hold or a note when an order is screened.</div>
-<p>Levels: <b>Embargoed</b> and <b>Restricted</b> put orders on hold; <b>Watch</b> adds a note only. <b>The list starts empty on purpose</b>: your admin and counsel decide what belongs, so the app never implies comfort from a default it guessed. Only an admin can add or remove rules. Until rules are set, orders to any destination are not held on country grounds.</p>
+<h3>5. Rules</h3>
+<div class="purpose"><b>Purpose</b>The settings that decide when an order is held or warned: shipment-check levels, end user statement settings, and the list of destination countries.</div>
+<p><b>Checks before an order ships.</b> For each checklist item an admin picks <b>Hold</b> (blocks shipping), <b>Warn</b> (note only) or <b>Track</b> (record only). Other users see the settings but cannot change them. The starting levels are <b>assumptions</b> to confirm with your compliance reviewer; they are listed below.</p>
+<p><b>End user statement.</b> Months a signed statement stays valid, and the statement wording (with a short version code shown on each signed copy).</p>
+<p><b>Destinations.</b> Levels: <b>Embargoed</b> and <b>Restricted</b> put orders on hold; <b>Watch</b> adds a note only. <b>The list starts empty on purpose</b>: your admin and counsel decide what belongs, so the app never implies comfort from a default it guessed. Until rules are set, orders to any destination are not held on country grounds.</p>
+
+<h3>Assumptions built into this version</h3>
+<p>These were chosen so the app can be reviewed. Each can be changed once your compliance reviewer has given feedback.</p>
+<table>
+  <tr><th style="width:8%">#</th><th>Assumption</th></tr>
+  <tr><td>A1</td><td>An online signature (typed name, title, agreement box, with wording, time, internet address and fingerprint stored) is accepted as the end user statement. A signed PDF upload is the alternative.</td></tr>
+  <tr><td>A2</td><td>One end user statement per customer, valid 12 months. A new one is needed after expiry or revocation.</td></tr>
+  <tr><td>A3</td><td>Domestic orders (destination United States) skip the licence determination and end user statement checks.</td></tr>
+  <tr><td>A4</td><td>Default levels per check, below.</td></tr>
+  <tr><td>A5</td><td>Records are kept five years from the later of the order date and ship date (the date of the last re-export or end of the transaction if known). Confirm the starting point under 15 CFR 762.6 with counsel.</td></tr>
+</table>
+<table>
+  <tr><th style="width:34%">Check</th><th style="width:14%">Default</th><th>Why</th></tr>
+  <tr><td>Licence determination recorded</td><td><span class="b a">Hold</span></td><td>The core export decision; shipping without it is the main risk.</td></tr>
+  <tr><td>End user statement on file</td><td><span class="b a">Hold</span></td><td>Needed before the first shipment to each customer.</td></tr>
+  <tr><td>FAR Part 12 verified (government contracts)</td><td><span class="b a">Hold</span></td><td>Only applies to US government contracts.</td></tr>
+  <tr><td>TAA / BAA certificate (government contracts)</td><td><span class="b a">Hold</span></td><td>Only applies when TAA or BAA is ticked.</td></tr>
+  <tr><td>Purchase order attached</td><td><span class="b n">Warn</span></td><td>Normally exists, but late filing is not a shipping risk.</td></tr>
+  <tr><td>Certificate of origin</td><td><span class="b n">Warn</span></td><td>Often produced at shipment.</td></tr>
+  <tr><td>Certificate of conformance</td><td><span class="b n">Warn</span></td><td>Often produced at shipment.</td></tr>
+  <tr><td>Contract</td><td>Track</td><td>Kept for the record.</td></tr>
+  <tr><td>Commercial invoice, shipping documents</td><td>Track</td><td>Usually created at or after shipment, so they cannot block it.</td></tr>
+</table>
+<p>Items the app checks itself, always as Hold: an approved classification for every item and clear screening results.</p>
 
 <!-- ============ REVIEW ============ -->
 <h2 id="review">Review</h2>
@@ -320,63 +366,76 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <li>Uploads appear in <b>Review</b>. Suppliers see only their own request, never other data in the app.</li>
 </ul>
 
+<h3>Customers signing an end user statement</h3>
+<p>Customers get a different private link, which opens the end user statement page instead of an upload page. They read it, fill in the end user and end use, sign, and see a confirmation they can print. Nothing else in the app is visible to them.</p>
+
 <!-- ============ ROUTINES ============ -->
 <h2 id="routines">Suggested routines</h2>
 <table>
   <tr><th style="width:20%">How often</th><th>Task</th></tr>
   <tr><td>Daily</td><td>Open <b>Today</b>. Clear anything marked red. Review new documents and open match hits.</td></tr>
   <tr><td>Every 1–2 weeks</td><td>Load a fresh screening list from trade.gov, then <b>Screen all parties</b>.</td></tr>
-  <tr><td>Before every shipment</td><td>Add the order and <b>Screen order</b>; ship only when it is Cleared.</td></tr>
+  <tr><td>Before every shipment</td><td>Add the order, attach its paperwork, record the licence determination and <b>Screen order</b>; ship only when it is Cleared. Download the order file after shipping.</td></tr>
   <tr><td>Monthly</td><td>Check <b>Requests</b> for overdue items and send reminders. Check that new products are classified.</td></tr>
-  <tr><td>Annually</td><td>Request updated conflict minerals forms from every supplier. Load the latest RMAP list first. Review classifications due for review. Check the Destinations list with counsel.</td></tr>
+  <tr><td>Annually</td><td>Request updated conflict minerals forms from every supplier. Load the latest RMAP list first. Review classifications due for review. Check the Rules tab with counsel; renew end user statements that are about to expire.</td></tr>
   <tr><td>Whenever asked</td><td>Use <b>Audit</b> to export evidence.</td></tr>
 </table>
 
 <h2 id="admin">Notes for the administrator</h2>
 <ul>
-  <li><b>Roles.</b> Users have a role on their profile. Admins can approve ITAR classifications, release ITAR orders, and edit Destination rules. Other users can read and perform the routine work. Role names are shown top right next to your name.</li>
+  <li><b>Roles.</b> Users have a role on their profile. Admins can approve ITAR classifications, release ITAR orders, and edit the Rules tab (shipment-check levels, end user statement wording and destinations). Other users can read and perform the routine work. Role names are shown top right next to your name.</li>
   <li><b>Settings</b> (stored in the database) include screening match thresholds, how many days before the list is "out of date" (14), re-screening interval (30 days), and customs retention years (5). Change these with your compliance lead, not casually.</li>
   <li><b>Protected data.</b> Screening lists, audit entries and approved classifications are write-protected. They can only change through the app's built-in actions, which is why the history can be trusted.</li>
-  <li><b>Setup.</b> The database is built by running the numbered SQL files (parts 1 through 9) in order in the Supabase SQL editor. Each is safe to re-run. The app is a single <code>index.html</code> plus a supplier <code>portal.html</code>, with connection keys in the <code>CFG</code> block at the top of each. Keep your own keys when replacing a file with a newer version.</li>
+  <li><b>Setup.</b> The database is built by running the numbered SQL files (parts 1 through 10; part 10 adds end user statements and the order file) in order in the Supabase SQL editor. Each is safe to re-run. The app is a single <code>index.html</code> plus a supplier <code>portal.html</code>, with connection keys in the <code>CFG</code> block at the top of each. Keep your own keys when replacing a file with a newer version.</li>
   <li><b>Not yet built.</b> Automatic emailing of requests, scheduled nightly list loading, a customer-facing report page, and user and settings administration screens.</li>
 </ul>
 
 <h2 id="glossary">Glossary</h2>
 <div class="scroll"><table>
   <tr><th style="width:18%">Term</th><th>Meaning</th></tr>
+  <tr><td>15 CFR 762.6</td><td>The US rule on how long export records must be kept (generally five years). Confirm the start date with counsel.</td></tr>
   <tr><td>3TG</td><td>Tin, tantalum, tungsten and gold, the four "conflict minerals."</td></tr>
   <tr><td>AECA</td><td>Arms Export Control Act, the law behind ITAR. "AECA Debarred" means barred from defense trade.</td></tr>
+  <tr><td>BAA</td><td>Buy American Act. Rules favoring US-made products in government purchases.</td></tr>
   <tr><td>BIS</td><td>Bureau of Industry and Security, part of the US Department of Commerce. Administers the EAR.</td></tr>
   <tr><td>CCATS</td><td>Commodity Classification Automated Tracking System. A formal written classification ruling issued by BIS.</td></tr>
   <tr><td>CMRT</td><td>Conflict Minerals Reporting Template. The standard spreadsheet suppliers use to declare their smelters.</td></tr>
+  <tr><td>CoC</td><td>Certificate of Conformance. A statement from the maker that products meet the stated specification.</td></tr>
   <tr><td>COO</td><td>Country of origin, where a product was made.</td></tr>
+  <tr><td>CoO</td><td>Certificate of Origin. A document stating the country where the goods were made.</td></tr>
   <tr><td>CSL</td><td>Consolidated Screening List. One file combining several US government restricted-party lists.</td></tr>
   <tr><td>CSV</td><td>Comma-separated values. A simple spreadsheet file that Excel can open and save.</td></tr>
   <tr><td>Dual-use</td><td>Items with both civilian and military applications.</td></tr>
   <tr><td>EAR / EAR99</td><td>Export Administration Regulations. EAR99 is the catch-all category for items without a specific control.</td></tr>
   <tr><td>ECCN</td><td>Export Control Classification Number. The code under the EAR that says how an item is controlled.</td></tr>
   <tr><td>End user</td><td>The party who ultimately uses the product.</td></tr>
+  <tr><td>EUS</td><td>End user statement. A signed statement from the customer about who will use the products, where and for what.</td></tr>
+  <tr><td>FAR</td><td>Federal Acquisition Regulation. The rules for US government purchasing. Part 12 covers commercial products.</td></tr>
   <tr><td>GNSS</td><td>Global Navigation Satellite System (such as GPS). Positioning products can carry extra export controls.</td></tr>
   <tr><td>HTS</td><td>Harmonized Tariff Schedule. The code customs uses to set duties on imports.</td></tr>
   <tr><td>IEEPA</td><td>International Emergency Economic Powers Act, the legal basis for some sanctions and tariffs.</td></tr>
   <tr><td>ITAR</td><td>International Traffic in Arms Regulations, run by the State Department.</td></tr>
+  <tr><td>NLR</td><td>No Licence Required. The decision that an export needs no export licence, for example "NLR – EAR99".</td></tr>
   <tr><td>OFAC</td><td>Office of Foreign Assets Control, part of the US Treasury. Publishes sanctions lists.</td></tr>
+  <tr><td>PO</td><td>Purchase order. The customer's order document.</td></tr>
   <tr><td>RMAP</td><td>Responsible Minerals Assurance Process. An audit program for smelters.</td></tr>
   <tr><td>RMI</td><td>Responsible Minerals Initiative. Publishes the RMAP smelter list and the CMRT template.</td></tr>
   <tr><td>SDN</td><td>Specially Designated Nationals. OFAC's main list of sanctioned parties.</td></tr>
-  <tr><td>SHA-256</td><td>A fingerprint calculated from a file's contents. If even one character changes, the fingerprint changes.</td></tr>
   <tr><td>Section 232 / 301</td><td>US trade laws behind certain extra tariffs (232: national security; 301: unfair trade practices).</td></tr>
+  <tr><td>SHA-256</td><td>A fingerprint calculated from a file's contents. If even one character changes, the fingerprint changes.</td></tr>
   <tr><td>SKU</td><td>Stock keeping unit. One part number.</td></tr>
   <tr><td>Smelter</td><td>A refinery that processes ore or scrap into metal.</td></tr>
+  <tr><td>TAA</td><td>Trade Agreements Act. Requires products sold to the US government to come from designated countries.</td></tr>
   <tr><td>USML</td><td>United States Munitions List. The list of items controlled under ITAR.</td></tr>
 </table></div>
 
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.0.0</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.1.0</p>
 </main>
 </div>
 </body>
