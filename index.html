@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="version" content="1.0.0">
+<meta name="version" content="1.1.0">
 <title>Conformality</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#printArea{display:none}
 @page{margin:14mm}
 @media print{body{background:#fff}#app,#toast,dialog{display:none!important}#printArea{display:block!important;color:#111;font-size:10pt}
@@ -22,8 +23,11 @@
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.1.0  End user statements (customers sign online or upload), order file checklist, license determination,
+//        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
+//        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -33,7 +37,7 @@ const CFG = {
 // -------------------------------------------------------------------------------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt = (d) => d ? new Date(d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '-';
+const fmt = (d) => d ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? d + 'T12:00:00' : d).toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'}) : '-';
 const toast = (m) => { const t=$('#toast'); t.textContent=m; t.classList.remove('hidden'); clearTimeout(toast.h); toast.h=setTimeout(()=>t.classList.add('hidden'),3500); };
 let sb, user, profile, view = 'today';
 
@@ -574,9 +578,9 @@ async function hitReviewModal(id) {
 
 // ---- trade compliance (EAR / ITAR / imports) -----------------------------------------
 let tradeTab = 'class', tradeF = { q: '', st: '' };
-const TRADE_TABS = [['class', 'Classification'], ['orders', 'Orders'], ['parties', 'Customers & ship-to'], ['records', 'Customs records'], ['dest', 'Destinations']];
+const TRADE_TABS = [['class', 'Classification'], ['orders', 'Orders'], ['parties', 'Customers & ship-to'], ['records', 'Customs records'], ['dest', 'Rules']];
 const TARIFFS = ['Section 301', 'Section 232', 'Reciprocal / IEEPA tariffs', 'Antidumping / countervailing duty', 'Free-trade preference claimed', 'Other'];
-const CUSTOMS_TYPES = ['entry_summary', 'commercial_invoice', 'packing_list', 'transport_doc', 'export_filing', 'broker_file', 'export_license'];
+const CUSTOMS_TYPES = ['purchase_order', 'contract', 'coo_certificate', 'certificate_of_conformance', 'taa_baa_certificate', 'end_user_statement', 'commercial_invoice', 'packing_list', 'transport_doc', 'entry_summary', 'export_filing', 'broker_file', 'export_license'];
 const ORDER_TONE = { pending: 'gray', cleared: 'green', hold: 'red', blocked: 'red' };
 const ORDER_LABEL = { pending: 'Not screened', cleared: 'Cleared', hold: 'On hold', blocked: 'Blocked' };
 const PARTY_ROLES = [['customer', 'Customer'], ['ship_to', 'Ship-to'], ['end_user', 'End user'], ['consignee', 'Consignee'], ['forwarder', 'Forwarder'], ['owner', 'Owner'], ['other', 'Other']];
@@ -749,36 +753,121 @@ async function saveOrderForm() {
   if (a.error || b.error) return ($('#fErr').textContent = (a.error || b.error).message);
   toast('Order created'); renderTrade(); openOrder(t.data.id);
 }
+const needPart10 = (e) => (/does not exist|schema cache|Could not find|column|relation/i.test(e?.message || '') ? 'Run database update part 10 first (compliance_schema_part10_order_file_eus.sql).' : (e?.message || String(e)));
+const DOC_LABEL = { purchase_order: 'Purchase order', contract: 'Contract or terms', coo_certificate: 'Certificate of origin', certificate_of_conformance: 'Certificate of conformance', taa_baa_certificate: 'TAA / BAA certificate', commercial_invoice: 'Commercial invoice', packing_list: 'Packing list', transport_doc: 'Transport document', end_user_statement: 'End user statement', export_filing: 'Export filing', export_license: 'Export licence', entry_summary: 'Entry summary', broker_file: 'Broker file' };
+const ITEM_DOC = { po: 'purchase_order', contract: 'contract', coo: 'coo_certificate', coc: 'certificate_of_conformance', gov_cert: 'taa_baa_certificate', invoice: 'commercial_invoice', shipping: 'packing_list' };
+const LEVEL_TXT = { hold: 'Blocks shipping', note: 'Warns', track: 'Tracked only' };
+const LICENSE_LABEL = { nlr: 'No license required (NLR)', license_required: 'License required', license_exception: 'License exception' };
+// The line a person pastes onto the invoice. It only restates the recorded determination.
+function invoiceStatement(o, cls) {
+  if (!o.license_determination) return '';
+  if (o.license_determination === 'license_required') return `Exported under license ${o.license_basis || ''}`.trim();
+  if (o.license_determination === 'license_exception') return `Exported under license exception ${o.license_basis || ''}`.trim();
+  const codes = [...new Set((cls || []).filter((c) => c.jurisdiction === 'EAR' && c.eccn).map((c) => (String(c.eccn).toUpperCase() === 'EAR99' ? 'EAR99' : 'ECCN ' + String(c.eccn).toUpperCase())))];
+  return 'NLR' + (codes.length ? ' - ' + codes.join(', ') : '');
+}
+async function afterOrderChange(id) {
+  const r = await sb.rpc('evaluate_transaction', { p_tx: id });
+  if (r.error) toast(r.error.message);
+  if (view === 'trade') renderTrade(); else if (view === 'today') route();
+  openOrder(id);
+}
 async function openOrder(id) {
-  const [t, cr] = await Promise.all([
-    sb.from('transactions').select('id,reference,transaction_date,destination_country,status,screened_at,hold_reasons,decision_notes,decided_at,parties:transaction_parties(role,party:parties(name,country)),lines:transaction_lines(quantity,sku_id,sku:skus(sku,description))').eq('id', id).single(),
-    sb.from('country_rules').select('country,level,name')]);
-  if (t.error) return toast(t.error.message);
+  const [t, cr, ck, dc, rt] = await Promise.all([
+    sb.from('transactions').select('id,reference,transaction_date,destination_country,status,screened_at,hold_reasons,decision_notes,decided_at,license_determination,license_basis,license_note,license_at,customer_po,shipped_on,gov_contract,taa_required,baa_required,far_part12_verified,far_part12_at,parties:transaction_parties(role,party:parties(id,name,country)),lines:transaction_lines(quantity,sku_id,sku:skus(sku,description))').eq('id', id).single(),
+    sb.from('country_rules').select('country,level,name'),
+    sb.rpc('order_checklist', { p_tx: id }),
+    sb.from('documents').select('id,doc_type,title,file_name,storage_path,issued_on,type:document_types(name)').eq('transaction_id', id).neq('status', 'rejected').order('created_at'),
+    sb.from('v_order_retention').select('keep_until').eq('transaction_id', id).maybeSingle()]);
+  if (t.error) return toast(needPart10(t.error));
+  if (ck.error) return toast(needPart10(ck.error));
   const o = t.data, ids = o.lines.map((l) => l.sku_id), cls = ids.length ? (await sb.from('v_trade_skus').select('sku_id,jurisdiction,eccn,usml_category,cur_id,hts_code,country_of_origin').in('sku_id', ids)).data || [] : [];
   const cm = new Map(cls.map((c) => [c.sku_id, c])), rule = (cr.data || []).find((r) => r.country === o.destination_country), hr = o.hold_reasons || {}, holds = hr.holds || [], notes = hr.notes || [];
   const ROLE = Object.fromEntries(PARTY_ROLES.concat([['intermediate', 'Intermediate']]));
+  const cust = o.parties.find((p) => p.role === 'customer')?.party, docs = dc.data || [], domestic = o.destination_country === 'US';
+  const items = (ck.data || []).filter((c) => c.applies), nDone = items.filter((c) => c.done).length, stmt = invoiceStatement(o, cls);
+  const allEar99 = ids.length > 0 && ids.every((i) => { const c = cm.get(i); return c && c.cur_id && c.jurisdiction === 'EAR' && String(c.eccn || '').toUpperCase() === 'EAR99'; });
+  const act = (c) => c.item === 'license' ? btn('Record…', 'ofLicense', { id })
+    : c.item === 'eus' ? (cust ? btn('Open…', 'eus', { id: cust.id, name: cust.name, ord: id }) : '')
+    : c.item === 'far12' ? btn('Mark verified', 'ofFar12', { id })
+    : c.item === 'classification' ? btn('Classify', 'ofGoClass', {}, 'ghost')
+    : ITEM_DOC[c.item] ? btn('Attach', 'uploadRecord', { tx: id, t: ITEM_DOC[c.item] }) : '';
+  const row = (c) => `<tr class="border-t border-slate-100 align-top"><td class="py-2 pr-2 w-24">${c.done ? badge('Done', 'green') : badge(c.level === 'track' || c.level === 'auto' ? 'To do' : 'Missing', c.level === 'hold' ? 'red' : c.level === 'note' ? 'amber' : 'gray')}</td><td class="py-2">${esc(c.label)}${!c.done && c.detail ? `<div class="text-xs text-slate-500">${esc(c.detail)}</div>` : ''}</td><td class="py-2 px-2 text-xs text-slate-400 whitespace-nowrap">${c.level === 'auto' ? '' : LEVEL_TXT[c.level] || ''}</td><td class="py-2 text-right">${c.done ? '' : act(c)}</td></tr>`;
   modal(`<div class="flex items-center gap-3"><h3 class="text-lg font-semibold">Order ${esc(o.reference)}</h3>${badge(ORDER_LABEL[o.status], ORDER_TONE[o.status])}</div>
     <p class="text-sm text-slate-500 mt-1">${fmt(o.transaction_date)} · to ${esc(o.destination_country || '?')} ${rule ? badge(rule.level, rule.level === 'watch' ? 'amber' : 'red') : ''}${o.screened_at ? ' · screened ' + fmt(o.screened_at) : ' · not screened yet'}</p>
-    <div class="mt-3 max-h-[56vh] overflow-auto pr-1">
+    <div class="mt-3 max-h-[58vh] overflow-auto pr-1">
     ${holds.length ? `<div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800"><b>Holds</b><ul class="list-disc pl-5 mt-1">${holds.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${notes.length ? `<div class="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900"><b>Check before shipping</b><ul class="list-disc pl-5 mt-1">${notes.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${o.decision_notes ? `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>Decision (${fmt(o.decided_at)}):</b> ${esc(o.decision_notes)}</div>` : ''}
     <h4 class="font-semibold mt-4">Parties</h4><table class="w-full text-sm mt-1"><tbody>${o.parties.map((p) => `<tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500 w-32">${esc(ROLE[p.role] || p.role)}</td><td>${esc(p.party?.name)}</td><td>${esc(p.party?.country || '')}</td></tr>`).join('')}</tbody></table>
-    <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">SKU</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table></div>
-    <p class="text-xs text-slate-500 mt-3">This screens parties, the destination and item classifications, and records the decision. It does not decide whether a licence is required.</p>
+    <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">SKU</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table>
+
+    <div class="flex flex-wrap items-center gap-2 mt-6"><h4 class="font-semibold">Order file</h4><span class="text-xs text-slate-500">${nDone} of ${items.length} complete${dc.data && rt.data?.keep_until ? ' · keep records until ' + fmt(rt.data.keep_until) : ''}</span><div class="ml-auto flex gap-2">${btn('Download order file', 'ofZip', { id }, 'ghost')}${btn('Print', 'ofPrint', { id }, 'ghost')}</div></div>
+    <p class="text-xs text-slate-500">Everything an auditor would ask for on this order. ${domestic ? 'This is a domestic order, so the license and end user statement checks are skipped.' : ''}</p>
+    <table class="w-full text-sm mt-1"><tbody>${items.map(row).join('')}</tbody></table>
+
+    <div class="mt-3 rounded-lg border border-slate-200 p-3 text-sm">
+      <div class="flex items-start gap-3"><div class="flex-1 min-w-0"><div class="font-medium">License determination</div>
+      ${domestic ? '<div class="text-slate-500">Not needed for a domestic order.</div>' : o.license_determination ? `<div>${esc(LICENSE_LABEL[o.license_determination])}${o.license_basis ? ' · ' + esc(o.license_basis) : ''}</div><div class="text-xs text-slate-500">${esc(o.license_note || '')} · ${fmt(o.license_at)}</div>
+        <div class="mt-2 text-xs text-slate-500">Statement for the invoice</div><div class="flex flex-wrap items-center gap-2"><code id="ofStmt" class="rounded bg-slate-100 px-2 py-1">${esc(stmt)}</code>${btn('Copy', 'copyText', { src: '#ofStmt' }, 'ghost')}</div>`
+        : `<div class="text-slate-500">Not recorded yet.</div>${allEar99 ? '<div class="text-xs text-slate-500 mt-1">All items are EAR99, so "NLR - EAR99" would normally apply. A person still has to confirm the destination and end user.</div>' : ''}`}</div>
+      ${domestic ? '' : btn(o.license_determination ? 'Change…' : 'Record…', 'ofLicense', { id }, o.license_determination ? 'ghost' : 'primary')}</div></div>
+
+    <div class="mt-3 rounded-lg border border-slate-200 p-3">
+      <div class="grid sm:grid-cols-3 gap-3 text-sm">
+        <label>Customer PO number<input id="ofPo" value="${esc(o.customer_po || '')}" class="${inp}"></label>
+        <label>Shipped on<input id="ofShip" type="date" value="${esc(o.shipped_on || '')}" class="${inp}"><span class="text-xs text-slate-400">Or the latest known re-export or end of the transaction. Starts the record-keeping clock.</span></label>
+        <div><label class="flex items-center gap-2 mt-6"><input id="ofGov" type="checkbox" ${o.gov_contract ? 'checked' : ''}> Government contract</label>
+          <div id="ofGovBox" class="${o.gov_contract ? '' : 'hidden'} mt-1 pl-6 space-y-1"><label class="flex items-center gap-2"><input id="ofTaa" type="checkbox" ${o.taa_required ? 'checked' : ''}> TAA required</label><label class="flex items-center gap-2"><input id="ofBaa" type="checkbox" ${o.baa_required ? 'checked' : ''}> BAA required</label></div></div>
+      </div>
+      <div class="mt-2 text-right">${btn('Save details', 'ofDetails', { id }, 'ghost')}</div>
+    </div>
+
+    <div class="flex items-center mt-4"><h4 class="font-semibold">Attached documents</h4><div class="ml-auto">${btn('+ Attach document', 'uploadRecord', { tx: id })}</div></div>
+    <table class="w-full text-sm mt-1"><tbody>${docs.map((d) => `<tr class="border-t border-slate-100"><td class="py-1.5 w-44 text-slate-500">${esc(d.type?.name || DOC_LABEL[d.doc_type] || d.doc_type)}</td><td class="truncate max-w-[16rem]">${esc(d.file_name)}</td><td>${fmt(d.issued_on)}</td><td class="text-right">${btn('Open', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td class="py-2 text-slate-500">Nothing attached yet.</td></tr>'}</tbody></table>
+    </div>
+    <p class="text-xs text-slate-500 mt-3">This screens parties, the destination and item classifications, checks the order file, and records the decision. It does not decide whether a license is required.</p>
     <p id="fErr" class="text-xs text-red-600 mt-1 min-h-4"></p>
     <div class="mt-2 flex flex-wrap justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${o.status !== 'blocked' ? btn(o.screened_at ? 'Re-screen' : 'Screen order', 'screenOrder', { id }, o.status === 'hold' || o.status === 'pending' ? 'primary' : 'ghost') : ''}${o.status === 'hold' ? btn('Release…', 'orderDecide', { id, d: 'cleared' }, 'ghost') : ''}${o.status !== 'blocked' ? btn('Block…', 'orderDecide', { id, d: 'blocked' }, 'danger') : ''}</div>`, true);
 }
 
+async function licenseModal(id) {
+  const t = await sb.from('transactions').select('id,reference,destination_country,license_determination,license_basis,license_note,lines:transaction_lines(sku_id)').eq('id', id).single();
+  if (t.error) return toast(needPart10(t.error));
+  const o = t.data, ids = o.lines.map((l) => l.sku_id), cls = ids.length ? (await sb.from('v_trade_skus').select('sku_id,jurisdiction,eccn,cur_id').in('sku_id', ids)).data || [] : [];
+  const allEar99 = ids.length > 0 && ids.every((i) => { const c = cls.find((x) => x.sku_id === i); return c && c.cur_id && c.jurisdiction === 'EAR' && String(c.eccn || '').toUpperCase() === 'EAR99'; });
+  const cur = o.license_determination || 'nlr';
+  modal(`<h3 class="text-lg font-semibold">License determination: order ${esc(o.reference)}</h3>
+    <p class="text-sm text-slate-600 mt-1">Record whether a license is needed to export this order to ${esc(o.destination_country || 'the destination')}. A person makes this decision and the app records it. For an ECCN other than EAR99, check the Commerce Country Chart for the destination and the reasons for control.</p>
+    <label class="block mt-3 text-sm">Determination<select id="lcD" class="${inp}">${Object.entries(LICENSE_LABEL).map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="block mt-3 text-sm">License number or exception code (not needed for NLR)<input id="lcB" value="${esc(o.license_basis || '')}" class="${inp}"></label>
+    <label class="block mt-3 text-sm">How was this decided? (required)<textarea id="lcN" rows="3" class="${inp}" placeholder="For example: all items EAR99, destination is not embargoed, end user statement on file.">${esc(o.license_note || (allEar99 ? 'All items are EAR99. Destination and end user checked.' : ''))}</textarea></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Back', 'openOrder', { id }, 'ghost')}${btn('Save', 'ofLicenseSave', { id })}</div>`);
+}
+async function licenseSave({ id }) {
+  const r = await sb.rpc('set_order_license', { p_tx: id, p_determination: $('#lcD').value, p_basis: $('#lcB').value.trim() || null, p_note: $('#lcN').value.trim() });
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  toast('License determination recorded'); afterOrderChange(id);
+}
+async function orderDetailsSave(id) {
+  const gov = $('#ofGov').checked, row = { customer_po: $('#ofPo').value.trim() || null, shipped_on: $('#ofShip').value || null, gov_contract: gov, taa_required: gov && $('#ofTaa').checked, baa_required: gov && $('#ofBaa').checked };
+  const r = await sb.from('transactions').update(row).eq('id', id);
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  toast('Saved'); afterOrderChange(id);
+}
+
+
 // ---- customers, ship-to and other parties ------------------------------------------------
 async function tradeParties() {
-  const [pa, st] = await Promise.all([sb.from('parties').select('id,name,roles,country,public_company,is_active').order('name'), sb.from('v_party_status').select('party_id,last_screened_at,open_hits,confirmed_hits')]);
+  const [pa, st, eu] = await Promise.all([sb.from('parties').select('id,name,roles,country,public_company,is_active').order('name'), sb.from('v_party_status').select('party_id,last_screened_at,open_hits,confirmed_hits'), sb.from('v_party_eus').select('party_id,state,valid_until')]);
   if (pa.error) throw pa.error;
-  const sm = new Map((st.data || []).map((s) => [s.party_id, s])), rows = pa.data.filter((p) => !(p.roles.length === 1 && p.roles[0] === 'supplier'));
+  const sm = new Map((st.data || []).map((s) => [s.party_id, s])), em = new Map((eu.data || []).map((s) => [s.party_id, s])), rows = pa.data.filter((p) => !(p.roles.length === 1 && p.roles[0] === 'supplier'));
+  const eusCell = (p) => { if (!p.roles.includes('customer')) return '<span class="text-slate-300">-</span>'; const e = em.get(p.id); if (!e) return badge('None', 'gray'); return badge(EUS_LABEL[e.state] + (e.state === 'valid' ? ' until ' + fmt(e.valid_until) : ''), EUS_TONE[e.state]); };
   return {
-    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Everyone you ship to, sell to or route through. Suppliers are managed on the Suppliers tab.</p><div class="ml-auto">${btn('+ Add party', 'editParty', { id: '' })}</div></div>
-    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Name</th><th class="p-3">Roles</th><th class="p-3">Country</th><th class="p-3">Public co.</th><th class="p-3">Screening</th><th class="p-3"></th></tr></thead>
-    <tbody class="divide-y divide-slate-100">${rows.map((p) => { const s = sm.get(p.id) || {}; return `<tr${p.is_active ? '' : ' class="text-slate-400"'}><td class="p-3 font-medium">${esc(p.name)}${p.is_active ? '' : ' (inactive)'}</td><td class="p-3">${esc(p.roles.map((r) => (PARTY_ROLES.find((x) => x[0] === r) || [0, r])[1]).join(', '))}</td><td class="p-3">${esc(p.country || '')}</td><td class="p-3">${p.public_company ? 'Yes' : ''}</td><td class="p-3">${s.confirmed_hits > 0 ? badge('Confirmed match', 'red') : s.open_hits > 0 ? badge(s.open_hits + ' to review', 'amber') : s.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray')}</td><td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editParty', { id: p.id }, 'ghost')}</td></tr>`; }).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No customers or ship-to parties yet.</td></tr>'}</tbody></table></div>`
+    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Everyone you ship to, sell to or route through. Customers also carry an end user statement. Suppliers are managed on the Suppliers tab.</p><div class="ml-auto">${btn('+ Add party', 'editParty', { id: '' })}</div></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Name</th><th class="p-3">Roles</th><th class="p-3">Country</th><th class="p-3">Public co.</th><th class="p-3">Screening</th><th class="p-3">End user statement</th><th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${rows.map((p) => { const s = sm.get(p.id) || {}; return `<tr${p.is_active ? '' : ' class="text-slate-400"'}><td class="p-3 font-medium">${esc(p.name)}${p.is_active ? '' : ' (inactive)'}</td><td class="p-3">${esc(p.roles.map((r) => (PARTY_ROLES.find((x) => x[0] === r) || [0, r])[1]).join(', '))}</td><td class="p-3">${esc(p.country || '')}</td><td class="p-3">${p.public_company ? 'Yes' : ''}</td><td class="p-3">${s.confirmed_hits > 0 ? badge('Confirmed match', 'red') : s.open_hits > 0 ? badge(s.open_hits + ' to review', 'amber') : s.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray')}</td><td class="p-3">${eusCell(p)}</td><td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editParty', { id: p.id }, 'ghost')}${p.roles.includes('customer') ? ' ' + btn('Contact', 'addContact', { id: p.id, name: p.name }, 'ghost') + ' ' + btn('EUS', 'eus', { id: p.id, name: p.name }, 'ghost') : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No customers or ship-to parties yet.</td></tr>'}</tbody></table></div>`
   };
 }
 async function partyModal(id) {
@@ -807,49 +896,209 @@ async function saveParty(id) {
 
 // ---- customs and export records ------------------------------------------------------------
 async function tradeRecords() {
-  const { data, error } = await sb.from('documents').select('id,title,doc_type,issued_on,retain_until,file_name,storage_path,transaction:transactions(reference),type:document_types(name)').in('doc_type', CUSTOMS_TYPES).order('created_at', { ascending: false }).limit(300);
+  const { data, error } = await sb.from('documents').select('id,title,doc_type,issued_on,retain_until,file_name,storage_path,transaction_id,transaction:transactions(reference),type:document_types(name)').in('doc_type', CUSTOMS_TYPES).order('created_at', { ascending: false }).limit(300);
   if (error) throw error;
+  const oids = [...new Set(data.filter((d) => d.transaction_id).map((d) => d.transaction_id))], keep = new Map();
+  if (oids.length) { const r = await sb.from('v_order_retention').select('transaction_id,keep_until').in('transaction_id', oids); (r.data || []).forEach((x) => keep.set(x.transaction_id, x.keep_until)); }
+  const until = (d) => { const k = keep.get(d.transaction_id); return k && (!d.retain_until || k > d.retain_until) ? k : d.retain_until; };
   return {
-    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Entry summaries, invoices, export filings and licences. Files cannot be changed or deleted, and each shows how long to keep it.</p><div class="ml-auto">${btn('+ Upload record', 'uploadRecord')}</div></div>
+    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Entry summaries, invoices, purchase orders, certificates, export filings and licences. Files cannot be changed or deleted. For records attached to an order, the keep-until date follows the order's ship date. Documents attached on an order also appear here.</p><div class="ml-auto shrink-0">${btn('+ Upload record', 'uploadRecord')}</div></div>
     <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Record</th><th class="p-3">Type</th><th class="p-3">Order</th><th class="p-3">Date</th><th class="p-3">Keep until</th><th class="p-3"></th></tr></thead>
-    <tbody class="divide-y divide-slate-100">${data.map((d) => `<tr><td class="p-3 font-medium">${esc(d.title)}</td><td class="p-3">${esc(d.type?.name || d.doc_type)}</td><td class="p-3">${esc(d.transaction?.reference || '')}</td><td class="p-3">${fmt(d.issued_on)}</td><td class="p-3">${fmt(d.retain_until)}</td><td class="p-3 text-right">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No records yet.</td></tr>'}</tbody></table></div>`
+    <tbody class="divide-y divide-slate-100">${data.map((d) => `<tr><td class="p-3 font-medium">${esc(d.title)}</td><td class="p-3">${esc(d.type?.name || d.doc_type)}</td><td class="p-3">${esc(d.transaction?.reference || '')}</td><td class="p-3">${fmt(d.issued_on)}</td><td class="p-3">${fmt(until(d))}</td><td class="p-3 text-right">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No records yet.</td></tr>'}</tbody></table></div>`
   };
 }
-async function uploadRecordModal() {
+let uploadCtx = null;
+async function uploadRecordModal(txId, code) {
+  uploadCtx = txId ? { tx: txId } : null;
   const [ty, tx] = await Promise.all([sb.from('document_types').select('code,name').in('code', CUSTOMS_TYPES).order('sort_order'), sb.from('transactions').select('id,reference').order('created_at', { ascending: false }).limit(200)]);
   if (ty.error) return toast(ty.error.message);
-  modal(`<h3 class="text-lg font-semibold">Upload customs or export record</h3>
-    <label class="block mt-3 text-sm">Type<select id="rType" class="${inp}">${ty.data.map((t) => `<option value="${t.code}">${esc(t.name)}</option>`).join('')}</select></label>
+  let orders = tx.data || [];
+  if (txId && !orders.some((t) => t.id === txId)) { const one = await sb.from('transactions').select('id,reference').eq('id', txId).single(); if (one.data) orders = [one.data, ...orders]; }
+  modal(`<h3 class="text-lg font-semibold">${txId ? 'Attach a document to this order' : 'Upload customs or export record'}</h3>
+    <label class="block mt-3 text-sm">Type<select id="rType" class="${inp}">${ty.data.map((t) => `<option value="${t.code}" ${t.code === code ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
     <label class="block mt-3 text-sm">File<input id="rFile" type="file" class="${inp}"></label>
-    <label class="block mt-3 text-sm">Entry or shipment date (sets the keep-until date)<input id="rDate" type="date" value="${todayIso()}" class="${inp}"></label>
-    <label class="block mt-3 text-sm">Related order (optional)<select id="rTx" class="${inp}"><option value="">None</option>${(tx.data || []).map((t) => `<option value="${t.id}">${esc(t.reference)}</option>`).join('')}</select></label>
+    <label class="block mt-3 text-sm">Document, entry or shipment date (sets the keep-until date)<input id="rDate" type="date" value="${todayIso()}" class="${inp}"></label>
+    <label class="block mt-3 text-sm">Related order${txId ? '' : ' (optional)'}<select id="rTx" class="${inp}">${txId ? '' : '<option value="">None</option>'}${orders.map((t) => `<option value="${t.id}" ${t.id === txId ? 'selected' : ''}>${esc(t.reference)}</option>`).join('')}</select></label>
     <label class="block mt-3 text-sm">Note (optional)<input id="rNote" class="${inp}"></label>
     <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
-    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Upload', 'saveRecord')}</div>`);
+    <div class="mt-3 flex justify-end gap-2">${btn(txId ? 'Back to order' : 'Cancel', txId ? 'openOrder' : 'close', txId ? { id: txId } : {}, 'ghost')}${btn('Upload', 'saveRecord')}</div>`);
 }
 async function saveRecord() {
   const f = $('#rFile').files[0]; if (!f) return ($('#fErr').textContent = 'Choose a file.');
   if (f.size > 50 * 1024 * 1024) return ($('#fErr').textContent = 'Files must be under 50 MB.');
   $('#fErr').textContent = 'Uploading…';
-  const id = crypto.randomUUID(), buf = await f.arrayBuffer(), path = `customs/${id}/${f.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`, type = $('#rType'), typeName = type.options[type.selectedIndex].text;
+  const id = crypto.randomUUID(), buf = await f.arrayBuffer(), path = `customs/${id}/${f.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`, type = $('#rType'), typeName = type.options[type.selectedIndex].text, txId = $('#rTx').value || null;
   const up = await sb.storage.from('compliance-docs').upload(path, f, { upsert: false, contentType: f.type || undefined }); if (up.error) return ($('#fErr').textContent = up.error.message);
-  const r = await sb.from('documents').insert({ id, doc_type: type.value, title: `${typeName} - ${f.name}`, transaction_id: $('#rTx').value || null, issued_on: $('#rDate').value || null, storage_path: path, file_name: f.name, mime_type: f.type || null, size_bytes: f.size, sha256: await sha256(buf), source: 'internal', notes: $('#rNote').value.trim() || null });
+  const r = await sb.from('documents').insert({ id, doc_type: type.value, title: `${typeName} - ${f.name}`, transaction_id: txId, issued_on: $('#rDate').value || null, storage_path: path, file_name: f.name, mime_type: f.type || null, size_bytes: f.size, sha256: await sha256(buf), source: 'internal', status: 'accepted', notes: $('#rNote').value.trim() || null });
   if (r.error) return ($('#fErr').textContent = r.error.message);
-  closeModal(); toast('Record saved'); renderTrade();
+  closeModal(); toast('Record saved');
+  if (txId) { const e = await sb.rpc('evaluate_transaction', { p_tx: txId }); if (e.error) toast(e.error.message); }
+  if (view === 'trade') renderTrade();
+  if (uploadCtx?.tx) openOrder(uploadCtx.tx);
 }
 
-// ---- destination rules -----------------------------------------------------------------------
+// ---- rules: shipment checks, end user statement settings, destinations ---------------------------
 async function tradeDest() {
-  const { data, error } = await sb.from('country_rules').select('*').order('country'); if (error) throw error; const admin = isAdminUser();
+  const [rl, ru, st] = await Promise.all([sb.from('country_rules').select('*').order('country'), sb.from('order_check_rules').select('*').order('sort_order'), sb.from('app_settings').select('key,value').in('key', ['eus_valid_months', 'eus_statement_text'])]);
+  if (rl.error) throw rl.error; if (ru.error) throw new Error(needPart10(ru.error));
+  const data = rl.data, admin = isAdminUser(), setv = (k, d) => { const r = (st.data || []).find((x) => x.key === k); return r ? r.value : d; };
+  const months = Number(setv('eus_valid_months', 12)) || 12, wording = String(setv('eus_statement_text', '')), ver = wording ? (await sha256(new TextEncoder().encode(wording))).slice(0, 8) : '';
+  const LV = [['hold', 'Blocks shipping'], ['note', 'Warns'], ['track', 'Tracked only']];
   return {
-    html: `<p class="text-sm text-slate-500 mb-3">Countries that put an order on hold when it is screened. This list is intentionally empty to start: your admin and counsel decide what belongs here, so a wrong default can never give false comfort.</p>
+    html: `<div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="font-medium">Checks before an order ships</div>
+      <p class="text-sm text-slate-500 mt-1">Each check below appears on every order's file. Choose what happens when it is missing. <b>Blocks shipping</b> puts the order on hold (a person can still release it with a written reason). <b>Warns</b> adds it under "Check before shipping". <b>Tracked only</b> shows it on the checklist and nothing more. The starting levels are assumptions to confirm with your compliance lead.</p>
+      <div class="overflow-x-auto mt-2"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="py-2 pr-3">Check</th><th class="py-2 pr-3">When it is missing</th><th class="py-2">Why this starting level</th></tr></thead>
+      <tbody class="divide-y divide-slate-100">${ru.data.map((r) => `<tr class="align-top"><td class="py-2 pr-3 font-medium">${esc(r.label)}</td><td class="py-2 pr-3 whitespace-nowrap">${admin ? `<select data-rule="${esc(r.item)}" class="rounded-lg border border-slate-300 p-1.5 text-sm">${LV.map(([v, l]) => `<option value="${v}" ${r.level === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : esc(LEVEL_TXT[r.level])}</td><td class="py-2 text-slate-500">${esc(r.assumption || '')}</td></tr>`).join('')}</tbody></table></div>
+      <p class="text-xs text-slate-500 mt-2">Always checked, not adjustable: every item is classified, and the parties, destination and items have been screened. ${admin ? '' : 'Only an admin can change these levels.'}</p></div>
+
+    <div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="font-medium">End user statement ${ver ? `<span class="text-xs font-normal text-slate-400">wording version ${esc(ver)}</span>` : ''}</div>
+      <p class="text-sm text-slate-500 mt-1">The wording customers sign on the portal. ${wording.startsWith('DRAFT') ? '<b class="text-amber-700">It is still the draft wording. Have counsel approve it before real customers sign.</b>' : ''} Every signed statement keeps the exact wording and version it was signed under.</p>
+      ${admin ? `<label class="block mt-3 text-sm">Valid for (months)<input id="eusMonths" type="number" min="1" max="60" value="${months}" class="mt-1 w-28 rounded-lg border border-slate-300 p-2"></label>
+        <label class="block mt-3 text-sm">Wording<textarea id="eusText" rows="12" class="${inp} font-mono text-xs">${esc(wording)}</textarea></label>
+        <p id="fErr2" class="text-xs text-red-600 mt-1 min-h-4"></p><div class="text-right">${btn('Save statement settings', 'saveEusSettings')}</div>`
+        : `<p class="text-sm mt-2">Valid for ${months} months.</p><pre class="mt-2 whitespace-pre-wrap text-xs bg-slate-50 rounded-lg p-3 border border-slate-200">${esc(wording)}</pre>`}</div>
+
+    <div class="font-medium mb-1">Destinations</div>
+    <p class="text-sm text-slate-500 mb-3">Countries that put an order on hold when it is screened. This list is intentionally empty to start: your admin and counsel decide what belongs here, so a wrong default can never give false comfort.</p>
     <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto mb-4"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Country</th><th class="p-3">Level</th><th class="p-3">Notes</th><th class="p-3"></th></tr></thead>
     <tbody class="divide-y divide-slate-100">${data.map((r) => `<tr><td class="p-3 font-medium">${esc(r.country)}${r.name ? ' · ' + esc(r.name) : ''}</td><td class="p-3">${badge(r.level, r.level === 'watch' ? 'amber' : 'red')}</td><td class="p-3">${esc(r.notes || '')}</td><td class="p-3 text-right">${admin ? btn('Remove', 'delRule', { c: r.country }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-6 text-center text-slate-500">No rules yet.</td></tr>'}</tbody></table></div>
-    ${admin ? `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="font-medium mb-2">Add or change a rule</div><div class="flex flex-wrap gap-2 items-end">
+    ${admin ? `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="font-medium mb-2">Add or change a destination rule</div><div class="flex flex-wrap gap-2 items-end">
       <label class="text-sm">Country<input id="dCc" maxlength="2" class="block mt-1 w-20 rounded-lg border border-slate-300 p-2 uppercase"></label>
       <label class="text-sm">Level<select id="dLv" class="block mt-1 rounded-lg border border-slate-300 p-2"><option value="embargoed">Embargoed (hold)</option><option value="restricted">Restricted (hold)</option><option value="watch">Watch (note only)</option></select></label>
       <label class="text-sm flex-1 min-w-[12rem]">Notes<input id="dNote" class="block mt-1 w-full rounded-lg border border-slate-300 p-2"></label>${btn('Save rule', 'saveRule')}</div><p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p></div>` : '<p class="text-xs text-slate-500">Only an admin can change these rules.</p>'}`
   };
+}
+
+// ---- end user statements (EUS) ------------------------------------------------------------------
+const EUS_TONE = { valid: 'green', expired: 'red', requested: 'amber', none: 'gray' };
+const EUS_LABEL = { valid: 'Valid', expired: 'Expired', requested: 'Link sent', none: 'None' };
+const longDate = (d) => new Date(d).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+async function eusModal(partyId, name, ordId) {
+  const [c, h, s] = await Promise.all([
+    sb.from('party_contacts').select('id,name,email').eq('party_id', partyId).eq('is_active', true).order('created_at', { ascending: false }).limit(1),
+    sb.from('end_user_statements').select('id,method,status,signer_name,signer_title,signed_at,valid_until,end_user_name').eq('party_id', partyId).order('signed_at', { ascending: false }),
+    sb.from('v_party_eus').select('*').eq('party_id', partyId).maybeSingle()]);
+  const bad = [c, h, s].find((r) => r.error); if (bad) return toast(needPart10(bad.error));
+  const contact = c.data[0], st = s.data?.state || 'none', cur = s.data;
+  const d = { id: partyId, name, ord: ordId || '' };
+  modal(`<h3 class="text-lg font-semibold">End user statement: ${esc(name)}</h3>
+    <p class="text-sm text-slate-500 mt-1">The customer's signed promise about who will use the products and how. One statement covers all of this customer's orders until it expires.</p>
+    <div class="mt-3 flex flex-wrap items-center gap-2">${badge(EUS_LABEL[st], EUS_TONE[st])}<span class="text-sm text-slate-600">${st === 'valid' ? `Valid until ${fmt(cur.valid_until)}. Signed by ${esc(cur.signer_name)}.` : st === 'expired' ? `Expired ${fmt(cur.valid_until)}. A new signature is needed.` : st === 'requested' ? `A signing link is out${cur?.link_expires_at ? ' until ' + fmt(cur.link_expires_at) : ''}. Waiting for the customer.` : 'No signed statement on file.'}</span></div>
+    <div class="mt-3 rounded-lg border border-slate-200 p-3 text-sm flex items-center gap-3"><div class="flex-1 min-w-0">${contact ? `Contact: <b>${esc(contact.name)}</b> <span class="text-slate-500">${esc(contact.email || '')}</span>` : '<span class="text-slate-500">No contact yet. Add one so the signing link goes to a named person.</span>'}</div>${btn(contact ? 'Manage contact' : 'Add contact', 'addContact', { id: partyId, name }, 'ghost')}</div>
+    <div class="mt-3 flex flex-wrap gap-2">${contact ? btn('Send signing link', 'eusLink', d) : ''}${btn('Upload signed copy', 'eusUpload', d, 'ghost')}</div>
+    <p class="text-xs text-slate-500 mt-2">Sending a link creates a private page where the customer reads the statement and signs with their name and title. Their wording, time, network address and a fingerprint are saved. If the customer prefers their own signed form, upload it instead.</p>
+    <h4 class="font-semibold mt-4">History</h4>
+    <table class="w-full text-sm mt-1"><tbody>${h.data.map((e) => `<tr class="border-t border-slate-100"><td class="py-1.5">${fmt(e.signed_at)}</td><td>${esc(e.signer_name)}${e.signer_title ? `<div class="text-xs text-slate-400">${esc(e.signer_title)}</div>` : ''}</td><td class="text-slate-500">${e.method === 'portal' ? 'Signed online' : 'Uploaded copy'}</td><td>${e.status === 'revoked' ? badge('Revoked', 'red') : e.valid_until < todayIso() ? badge('Expired', 'red') : badge('Valid to ' + fmt(e.valid_until), 'green')}</td><td class="text-right">${btn('View', 'eusView', { ...d, eid: e.id }, 'ghost')}</td></tr>`).join('') || '<tr><td class="py-2 text-slate-500">Nothing signed yet.</td></tr>'}</tbody></table>
+    <div class="mt-4 flex justify-end gap-2">${ordId ? btn('Back to order', 'openOrder', { id: ordId }, 'ghost') : btn('Close', 'close', {}, 'ghost')}</div>`, true);
+}
+async function eusLink({ id, name, ord }) {
+  const c = await sb.from('party_contacts').select('id,name,email').eq('party_id', id).eq('is_active', true).order('created_at', { ascending: false }).limit(1), contact = c.data?.[0];
+  if (!contact) return toast('Add a contact first.');
+  const l = await sb.rpc('create_portal_link', { p_kind: 'customer_eus', p_party: id, p_contact: contact.id, p_days: 30, p_label: 'End user statement' });
+  if (l.error) return toast(/Unknown link type|customer_eus|check constraint/i.test(l.error.message) ? needPart10({ message: 'does not exist' }) : l.error.message);
+  const url = `${new URL(CFG.portalUrl, location.href).href}?token=${l.data.token}`, first = (contact.name || '').split(' ')[0] || 'there';
+  const body = `Hello ${first},\n\nTo keep our export compliance records up to date, please review and sign an end user statement for ${name}. It takes about two minutes and no account is needed:\n${url}\n\nThe link expires on ${longDate(l.data.expires_at)}.\n\nThank you,\n${profile?.full_name || ''}`;
+  const mailto = `mailto:${encodeURIComponent(contact.email || '')}?subject=${encodeURIComponent('End user statement for signature')}&body=${encodeURIComponent(body)}`;
+  modal(`<h3 class="text-lg font-semibold">Signing link ready</h3>
+    <p class="text-sm text-slate-500 mt-1">Copy the link or open a pre-filled email to ${esc(contact.name)}. The link is shown only now. It expires ${fmt(l.data.expires_at)}.</p>
+    <input id="lkU" readonly value="${esc(url)}" class="mt-3 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono">
+    <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="${esc(mailto)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'eus', { id, name, ord }, 'ghost')}</div>`);
+}
+function eusUploadModal(id, name, ord) {
+  modal(`<h3 class="text-lg font-semibold">Upload a signed statement: ${esc(name)}</h3>
+    <label class="block mt-3 text-sm">Signed file<input id="eFile" type="file" class="${inp}"></label>
+    <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">Signed by (name) *<input id="eName" class="${inp}"></label><label class="block mt-3 text-sm">Job title<input id="eTitle" class="${inp}"></label>
+    <label class="block mt-3 text-sm">Signed on<input id="eSigned" type="date" value="${todayIso()}" class="${inp}"></label><label class="block mt-3 text-sm">Valid until (blank = default period)<input id="eValid" type="date" class="${inp}"></label>
+    <label class="block mt-3 text-sm">End user name<input id="eEu" value="${esc(name)}" class="${inp}"></label><label class="block mt-3 text-sm">End user country (2 letters)<input id="eCc" maxlength="2" class="${inp} uppercase"></label></div>
+    <label class="block mt-3 text-sm">End use<input id="eUse" class="${inp}"></label>
+    <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+    <div class="mt-3 flex justify-end gap-2">${btn('Back', 'eus', { id, name, ord }, 'ghost')}${btn('Save statement', 'eusSave', { id, name, ord })}</div>`);
+}
+async function eusSave({ id, name, ord }) {
+  const f = $('#eFile').files[0], signer = $('#eName').value.trim(); if (!f) return ($('#fErr').textContent = 'Choose the signed file.'); if (!signer) return ($('#fErr').textContent = 'Enter who signed it.');
+  if (f.size > 50 * 1024 * 1024) return ($('#fErr').textContent = 'Files must be under 50 MB.');
+  $('#fErr').textContent = 'Uploading…';
+  const docId = crypto.randomUUID(), buf = await f.arrayBuffer(), path = `customs/${docId}/${f.name.replace(/[^A-Za-z0-9._-]+/g, '_')}`;
+  const up = await sb.storage.from('compliance-docs').upload(path, f, { upsert: false, contentType: f.type || undefined }); if (up.error) return ($('#fErr').textContent = up.error.message);
+  const d = await sb.from('documents').insert({ id: docId, doc_type: 'end_user_statement', title: `End user statement - ${name}`, party_id: id, issued_on: $('#eSigned').value || null, storage_path: path, file_name: f.name, mime_type: f.type || null, size_bytes: f.size, sha256: await sha256(buf), source: 'customer', status: 'accepted' });
+  if (d.error) return ($('#fErr').textContent = needPart10(d.error));
+  const r = await sb.rpc('record_eus_upload', { p_party: id, p_document: docId, p_signer_name: signer, p_signer_title: $('#eTitle').value.trim() || null, p_signed_on: $('#eSigned').value || null, p_valid_until: $('#eValid').value || null, p_end_user_name: $('#eEu').value.trim() || null, p_end_user_country: $('#eCc').value.trim() || null, p_end_use: $('#eUse').value.trim() || null });
+  if (r.error) return ($('#fErr').textContent = r.error.message);
+  toast('Statement saved'); if (view === 'trade') renderTrade(); if (ord) await sb.rpc('evaluate_transaction', { p_tx: ord }); eusModal(id, name, ord);
+}
+async function eusView({ id, name, ord, eid }) {
+  const r = await sb.from('end_user_statements').select('*, document:documents(storage_path,file_name,sha256)').eq('id', eid).single();
+  if (r.error) return toast(r.error.message);
+  const e = r.data, kv = (k, v) => (v ? `<div class="mt-2"><div class="text-xs text-slate-500">${k}</div><div class="text-sm">${v}</div></div>` : '');
+  modal(`<h3 class="text-lg font-semibold">End user statement ${e.status === 'revoked' ? badge('Revoked', 'red') : ''}</h3>
+    <div class="mt-2 max-h-[58vh] overflow-auto grid sm:grid-cols-2 gap-x-6">
+    ${kv('Customer', esc(name))}${kv('Signed by', esc(e.signer_name) + (e.signer_title ? ', ' + esc(e.signer_title) : ''))}${kv('Signed', e.method === 'portal' ? esc(new Date(e.signed_at).toLocaleString()) : fmt(e.signed_at))}${kv('Valid until', fmt(e.valid_until))}${kv('Method', e.method === 'portal' ? 'Signed online with a private link' : 'Uploaded signed copy')}${kv('End user', esc(e.end_user_name || ''))}${kv('End user country', esc(e.end_user_country || ''))}${kv('End use', esc(e.end_use || ''))}${e.ip ? kv('Network address', esc(e.ip)) : ''}${kv('Fingerprint (SHA-256)', `<span class="font-mono text-xs break-all">${esc(e.content_sha256 || '')}</span>`)}${e.statement_version ? kv('Wording version', esc(e.statement_version)) : ''}${e.status === 'revoked' ? kv('Revoked', fmt(e.revoked_at) + ': ' + esc(e.revoked_reason)) : ''}</div>
+    ${e.statement_text ? `<div class="mt-3 text-xs text-slate-500">Wording signed</div><pre class="whitespace-pre-wrap text-xs bg-slate-50 rounded-lg p-3 border border-slate-200 max-h-48 overflow-auto">${esc(e.statement_text)}</pre>` : ''}
+    <div class="mt-4 flex flex-wrap justify-end gap-2">${e.document?.storage_path ? btn('Open file', 'file', { path: e.document.storage_path }, 'ghost') : ''}${e.status === 'signed' ? btn('Revoke…', 'eusRevoke', { id, name, ord, eid }, 'danger') : ''}${btn('Back', 'eus', { id, name, ord }, 'ghost')}</div>`, true);
+}
+
+// ---- order file: gather everything for one order, then print it or zip it -------------------------
+async function orderFileData(id) {
+  const t = await sb.from('transactions').select('*, parties:transaction_parties(role,party:parties(id,name,country,address_line,city)), lines:transaction_lines(quantity,sku_id,classification_id,sku:skus(sku,description))').eq('id', id).single();
+  if (t.error) throw new Error(needPart10(t.error));
+  const o = t.data, pids = [...new Set(o.parties.map((p) => p.party.id))], custId = o.parties.find((p) => p.role === 'customer')?.party.id;
+  const snap = o.lines.map((l) => l.classification_id).filter(Boolean), noSnap = o.lines.filter((l) => !l.classification_id).map((l) => l.sku_id);
+  const [ck, dc, c1, c2, sc, ld, eu, rt] = await Promise.all([
+    sb.rpc('order_checklist', { p_tx: id }),
+    sb.from('documents').select('id,doc_type,title,file_name,storage_path,issued_on,sha256,type:document_types(name)').eq('transaction_id', id).neq('status', 'rejected').order('created_at'),
+    snap.length ? sb.from('classifications').select('id,sku_id,version,jurisdiction,eccn,usml_category,eu_dual_use_no,other_control_no,hts_code,country_of_origin,source,rationale,approved_on').in('id', snap) : { data: [] },
+    noSnap.length ? sb.from('classifications').select('id,sku_id,version,jurisdiction,eccn,usml_category,eu_dual_use_no,other_control_no,hts_code,country_of_origin,source,rationale,approved_on').in('sku_id', noSnap).eq('is_current', true) : { data: [] },
+    sb.from('screenings').select('party_id,screened_at,result').in('party_id', pids).order('screened_at', { ascending: false }),
+    sb.from('reference_list_loads').select('list_code,loaded_at,row_count,file_sha256').neq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(60),
+    custId ? sb.from('end_user_statements').select('*, document:documents(id,doc_type,title,file_name,storage_path,sha256)').eq('party_id', custId).eq('status', 'signed').order('valid_until', { ascending: false }).limit(1) : { data: [] },
+    sb.from('v_order_retention').select('keep_until').eq('transaction_id', id).maybeSingle()]);
+  const bad = [ck, dc, c1, c2, sc, ld, eu].find((r) => r.error); if (bad) throw new Error(needPart10(bad.error));
+  const cmap = new Map([...(c1.data || []), ...(c2.data || [])].map((c) => [c.id, c])), cbySku = new Map((c2.data || []).map((c) => [c.sku_id, c]));
+  const lines = o.lines.map((l) => ({ ...l, cls: (l.classification_id && cmap.get(l.classification_id)) || cbySku.get(l.sku_id) || null, snapshot: !!l.classification_id }));
+  const lastScr = new Map(); for (const s of sc.data || []) if (!lastScr.has(s.party_id)) lastScr.set(s.party_id, s);
+  const listAt = (when) => (ld.data || []).find((x) => new Date(x.loaded_at) <= new Date(when)) || null;
+  const cls = lines.map((l) => l.cls).filter(Boolean);
+  return { o, lines, parties: o.parties, checklist: ck.data || [], docs: dc.data || [], eus: eu.data?.[0] || null, lastScr, listAt, keep: rt.data?.keep_until || null, stmt: invoiceStatement(o, cls), when: new Date() };
+}
+const ctl = (c) => (!c ? 'Not classified' : c.jurisdiction === 'ITAR' ? 'ITAR USML ' + (c.usml_category || '?') : c.jurisdiction === 'EAR' ? 'EAR ' + (c.eccn || '?') : [c.jurisdiction, c.eu_dual_use_no || c.other_control_no].filter(Boolean).join(' '));
+function orderFileHtml(d) {
+  const o = d.o, ROLE = Object.fromEntries(PARTY_ROLES.concat([['intermediate', 'Intermediate']])), tr = (cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`, th = (cells) => `<thead><tr>${cells.map((c) => `<th>${c}</th>`).join('')}</tr></thead>`;
+  const items = d.checklist.filter((c) => c.applies);
+  return `<h1>Order file: ${esc(o.reference)}</h1>
+  <p>Generated ${esc(d.when.toLocaleString())} from Conformality v${esc(APP_VERSION)}. Status: <b>${esc(ORDER_LABEL[o.status] || o.status)}</b>${o.decision_notes ? `. Decision: ${esc(o.decision_notes)}` : ''}</p>
+  <table>${tr(['Order date', fmt(o.transaction_date)])}${tr(['Destination', esc(o.destination_country || '')])}${tr(['Customer PO', esc(o.customer_po || '')])}${tr(['Shipped on (or end of transaction)', o.shipped_on ? fmt(o.shipped_on) : 'not recorded'])}${tr(['Keep records until', d.keep ? fmt(d.keep) : ''])}${tr(['Government contract', o.gov_contract ? 'Yes' + (o.taa_required ? ', TAA required' : '') + (o.baa_required ? ', BAA required' : '') + (o.far_part12_verified ? ', FAR Part 12 verified ' + fmt(o.far_part12_at) : ', FAR Part 12 not verified') : 'No'])}</table>
+  <h2>Parties</h2><table>${th(['Role', 'Name', 'Country', 'Address'])}<tbody>${d.parties.map((p) => tr([esc(ROLE[p.role] || p.role), esc(p.party.name), esc(p.party.country || ''), esc([p.party.address_line, p.party.city].filter(Boolean).join(', '))])).join('')}</tbody></table>
+  <h2>1. Product classification record</h2><table>${th(['SKU', 'Qty', 'Export control', 'HTS', 'Origin', 'Classification', 'Source', 'Approved'])}<tbody>${d.lines.map((l) => tr([esc(l.sku?.sku), l.quantity, esc(ctl(l.cls)), esc(l.cls?.hts_code || ''), esc(l.cls?.country_of_origin || ''), l.cls ? 'v' + l.cls.version + (l.snapshot ? ' (as screened)' : ' (current, order not screened)') : '', esc((l.cls?.source || '').replace(/_/g, ' ')), l.cls?.approved_on ? fmt(l.cls.approved_on) : ''])).join('')}</tbody></table>
+  ${d.lines.filter((l) => l.cls?.rationale).map((l) => `<p class="small"><b>${esc(l.sku?.sku)}:</b> ${esc(l.cls.rationale.slice(0, 500))}</p>`).join('')}
+  <h2>2. Screening record</h2><table>${th(['Party', 'Last screened', 'Result', 'List used (loaded, entries, file fingerprint)'])}<tbody>${d.parties.map((p) => { const s = d.lastScr.get(p.party.id), l = s ? d.listAt(s.screened_at) : null; return tr([esc(p.party.name), s ? esc(new Date(s.screened_at).toLocaleString()) : 'Never', s ? esc(s.result.replace('_', ' ')) : '', l ? `${esc(l.list_code)} ${fmt(l.loaded_at)}, ${(l.row_count || 0).toLocaleString()} entries<br><span class="mono">${esc(l.file_sha256 || '')}</span>` : '']); }).join('')}</tbody></table>
+  <p class="small">Screened against the US Consolidated Screening List (OFAC, BIS, State). Each load keeps the original file and its fingerprint in the app.</p>
+  <h2>3. End user statement</h2>${d.eus ? `<table>${tr(['Customer', esc(d.parties.find((p) => p.role === 'customer')?.party.name || '')])}${tr(['Signed by', esc(d.eus.signer_name) + (d.eus.signer_title ? ', ' + esc(d.eus.signer_title) : '')])}${tr(['Signed', d.eus.method === 'portal' ? esc(new Date(d.eus.signed_at).toLocaleString()) + ' (online)' : fmt(d.eus.signed_at) + ' (uploaded copy)'])}${tr(['Valid until', fmt(d.eus.valid_until)])}${tr(['End user / end use', esc([d.eus.end_user_name, d.eus.end_use].filter(Boolean).join(': '))])}${tr(['Fingerprint', `<span class="mono">${esc(d.eus.content_sha256 || '')}</span>`])}</table>` : '<p>No signed end user statement on file.</p>'}
+  <h2>License determination</h2>${o.license_determination ? `<p>${esc(LICENSE_LABEL[o.license_determination])}${o.license_basis ? ': ' + esc(o.license_basis) : ''}. ${esc(o.license_note || '')} (${fmt(o.license_at)})</p><p>Invoice statement: <b>${esc(d.stmt)}</b></p>` : `<p>${o.destination_country === 'US' ? 'Not needed: domestic order.' : 'Not recorded.'}</p>`}
+  <h2>Checklist</h2><table>${th(['Item', 'Status', 'When missing'])}<tbody>${items.map((c) => tr([esc(c.label), c.done ? 'Done' : 'Missing' + (c.detail ? ' (' + esc(c.detail) + ')' : ''), c.level === 'auto' ? '' : esc(LEVEL_TXT[c.level] || '')])).join('')}</tbody></table>
+  <h2>4 and 5. Purchase order, contract, shipping and invoice documents</h2><table>${th(['Type', 'File', 'Date', 'SHA-256'])}<tbody>${d.docs.map((x) => tr([esc(x.type?.name || x.doc_type), esc(x.file_name), fmt(x.issued_on), `<span class="mono">${esc(x.sha256)}</span>`])).join('') || tr(['None attached', '', '', ''])}</tbody></table>`;
+}
+const ORDER_FILE_CSS = 'body{font:14px/1.5 system-ui,Arial,sans-serif;max-width:960px;margin:24px auto;padding:0 16px;color:#111}h1{font-size:22px}h2{font-size:16px;margin:22px 0 6px;border-bottom:1px solid #ddd;padding-bottom:3px}table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{border-bottom:1px solid #e5e5e5;padding:4px 6px;text-align:left;vertical-align:top}th{color:#555}.mono{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;word-break:break-all}.small{font-size:12px;color:#555}';
+async function ofPrint(id) {
+  try { const d = await orderFileData(id); $('#printArea').innerHTML = orderFileHtml(d); window.print(); setTimeout(() => { $('#printArea').innerHTML = ''; }, 1000); } catch (e) { toast(e.message); }
+}
+async function ofZip(id) {
+  if (typeof JSZip === 'undefined') return toast('The zip tool did not load. Check your connection and reload the page.');
+  toast('Building the order file…');
+  try {
+    const d = await orderFileData(id), zip = new JSZip(), safe = (s) => String(s || 'file').replace(/[^A-Za-z0-9._-]+/g, '_'), missing = [];
+    zip.file('00_order_file_summary.html', `<!doctype html><html><head><meta charset="utf-8"><title>Order file ${esc(d.o.reference)}</title><style>${ORDER_FILE_CSS}</style></head><body>${orderFileHtml(d)}</body></html>`);
+    const files = [...d.docs]; if (d.eus?.document) files.push(d.eus.document);
+    let n = 0;
+    for (const f of files) {
+      const r = await sb.storage.from('compliance-docs').download(f.storage_path);
+      if (r.error) { missing.push(f.file_name); continue; }
+      zip.file(`documents/${String(++n).padStart(2, '0')}_${safe(f.doc_type)}_${safe(f.file_name)}`, r.data);
+    }
+    if (d.eus && d.eus.method === 'portal') zip.file('documents/end_user_statement_signed_online.html', `<!doctype html><html><head><meta charset="utf-8"><title>End user statement</title><style>${ORDER_FILE_CSS}</style></head><body><h1>End user statement</h1><p>Signed online by ${esc(d.eus.signer_name)}${d.eus.signer_title ? ', ' + esc(d.eus.signer_title) : ''} on ${esc(new Date(d.eus.signed_at).toLocaleString())}. Valid until ${fmt(d.eus.valid_until)}. Wording version ${esc(d.eus.statement_version || '')}.</p><p>End user: ${esc(d.eus.end_user_name || '')} ${esc(d.eus.end_user_country || '')}<br>End use: ${esc(d.eus.end_use || '')}<br>Network address: ${esc(d.eus.ip || '')}<br>Fingerprint (SHA-256): <span class="mono">${esc(d.eus.content_sha256 || '')}</span></p><h2>Wording signed</h2><pre style="white-space:pre-wrap">${esc(d.eus.statement_text || '')}</pre></body></html>`);
+    const blob = await zip.generateAsync({ type: 'blob' }), a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = `order_file_${safe(d.o.reference)}.zip`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast(missing.length ? `Downloaded, but ${missing.length} file(s) could not be fetched: ${missing.join(', ')}` : 'Order file downloaded');
+  } catch (e) { toast(e.message); }
 }
 
 // ---- audit trail ---------------------------------------------------------------
@@ -1134,7 +1383,7 @@ const actions = {
   },
   editParty: ({ id }) => partyModal(id),
   saveParty: ({ id }) => saveParty(id),
-  uploadRecord: () => uploadRecordModal(),
+  uploadRecord: (d) => uploadRecordModal(d.tx, d.t),
   saveRecord: () => saveRecord(),
   saveRule: async () => {
     const cc = $('#dCc').value.trim().toUpperCase(); if (!/^[A-Z]{2}$/.test(cc)) return ($('#fErr').textContent = 'Enter a 2-letter country code.');
@@ -1283,7 +1532,7 @@ const actions = {
     if (error) return toast(error.message);
     const c = data[0], f = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
     modal(`<h3 class="text-lg font-semibold">${c ? 'Manage contact' : 'Add contact'} at ${esc(name)}</h3>
-    <p class="text-xs text-slate-500 mt-1">One contact per supplier. Requests and upload links go to this person.</p>
+    <p class="text-xs text-slate-500 mt-1">One contact per company. Requests, upload links and signing links go to this person.</p>
     <label class="block mt-3 text-sm">Full name<input id="cName" value="${esc(c?.name || '')}" class="${f}"></label>
     <label class="block mt-3 text-sm">Email<input id="cEmail" type="email" value="${esc(c?.email || '')}" class="${f}"></label>
     <label class="block mt-3 text-sm">Phone (optional)<input id="cPhone" value="${esc(c?.phone || '')}" class="${f}"></label>
@@ -1337,11 +1586,44 @@ const actions = {
       <div class="mt-4 flex flex-wrap justify-end gap-2">${btn('Copy link', 'copy', {}, 'ghost')}<a href="${esc(mailto)}" class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700">Open email draft</a>${btn('Done', 'close', {}, 'ghost')}</div>`);
     toast('Request logged as sent');
   },
+  eus: ({ id, name, ord }) => eusModal(id, name, ord),
+  eusLink: (d) => eusLink(d),
+  eusUpload: ({ id, name, ord }) => eusUploadModal(id, name, ord),
+  eusSave: (d) => eusSave(d),
+  eusView: (d) => eusView(d),
+  eusRevoke: async ({ id, name, ord, eid }) => {
+    const note = await askNote('Revoke this end user statement? Say why. It stays in the history.', true);
+    if (note === null) return eusModal(id, name, ord);
+    const r = await sb.rpc('revoke_eus', { p_id: eid, p_reason: note }); if (r.error) toast(r.error.message); else toast('Revoked');
+    if (view === 'trade') renderTrade(); eusModal(id, name, ord);
+  },
+  ofLicense: ({ id }) => licenseModal(id),
+  ofLicenseSave: (d) => licenseSave(d),
+  ofDetails: ({ id }) => orderDetailsSave(id),
+  ofFar12: async ({ id }) => {
+    if (!confirm('Confirm that you have checked this purchase order and it is a standard FAR Part 12 (commercial products) order.')) return;
+    const r = await sb.from('transactions').update({ far_part12_verified: true }).eq('id', id);
+    if (r.error) return toast(r.error.message); toast('Marked as verified'); afterOrderChange(id);
+  },
+  ofGoClass: () => { closeModal(); tradeTab = 'class'; view = 'trade'; renderTrade(); },
+  ofZip: ({ id }) => ofZip(id),
+  ofPrint: ({ id }) => ofPrint(id),
+  copyText: async ({ src }) => { const el = $(src); await navigator.clipboard.writeText(el.value ?? el.textContent); toast('Copied'); },
+  saveEusSettings: async () => {
+    const m = Math.round(Number($('#eusMonths').value)), text = $('#eusText').value.trim();
+    if (!(m >= 1 && m <= 60)) return ($('#fErr2').textContent = 'Enter a number of months between 1 and 60.'); if (text.length < 40) return ($('#fErr2').textContent = 'The wording looks too short.');
+    const r = await sb.from('app_settings').upsert([{ key: 'eus_valid_months', value: m }, { key: 'eus_statement_text', value: text }], { onConflict: 'key' });
+    if (r.error) return ($('#fErr2').textContent = r.error.message); toast('Saved'); renderTrade();
+  },
   copy: async () => { await navigator.clipboard.writeText($('#lkU').value); toast('Copied'); }
 };
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b && actions[b.dataset.a]) actions[b.dataset.a](b.dataset); });
 document.addEventListener('change', (e) => { if (e.target.id === 'rqType') { const s = $('#rqSub'); if (s && !s.dataset.t) s.value = `${new Date().getFullYear()} ${actions.rq.types.find((x) => x.code === e.target.value)?.name || ''}`; } });
 document.addEventListener('input', (e) => { if (e.target.id === 'rqSub') e.target.dataset.t = '1'; });
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'ofGov') { const b = $('#ofGovBox'); if (b) b.classList.toggle('hidden', !e.target.checked); }
+  if (e.target.dataset && e.target.dataset.rule) sb.from('order_check_rules').update({ level: e.target.value, updated_at: new Date().toISOString() }).eq('item', e.target.dataset.rule).then((r) => toast(r.error ? r.error.message : 'Saved'));
+});
 
 // ---- boot & auth ---------------------------------------------------------------
 function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit })[view](); }
