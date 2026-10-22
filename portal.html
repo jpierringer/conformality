@@ -4,21 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
-<meta name="version" content="1.0.0">
+<meta name="version" content="1.1.0">
 <title>Supplier Compliance Portal</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}</style>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}@media print{.noprint{display:none!important}body{background:#fff}}</style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 <div id="app" class="max-w-3xl mx-auto px-4 py-8"></div>
 
 <script>
 // ---- VERSION: increase with every revision ----
+// 1.1.0  Customers can read and sign an end user statement (new link type).
 // 1.0.0  First versioned release.
-const PORTAL_VERSION = '1.0.0';
+const PORTAL_VERSION = '1.1.0';
 // ---- CONFIG: same Supabase values as the internal app ------------------------
-const CFG = { url: 'https://sjwarllnehssyphoormc.supabase.co', key: 'sb_publishable_eGv0iwOKZ1DP6JixaXZnrQ_vI6nax4S' };
+const CFG = { url: '', key: '' };
 // -------------------------------------------------------------------------------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -215,6 +216,7 @@ document.addEventListener('click', (e) => {
   if (b.dataset.a === 'addRow') { syncRows(); rows.push(blank()); keepRender(); }
   if (b.dataset.a === 'delRow') { syncRows(); rows.splice(+b.dataset.i, 1); keepRender(); }
   if (b.dataset.a === 'submitOwn') submitOwnership();
+  if (b.dataset.a === 'signEus') signEus();
 });
 function keepRender() {
   const v = ['owName', 'owCountry', 'cfName', 'cfTitle'].map((id) => $('#' + id).value), none = $('#owNone').checked, ok = $('#cfOk').checked;
@@ -225,12 +227,67 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'upReq') { const dt = e.target.selectedOptions[0]?.dataset.dt; if (dt && [...$('#upType').options].some((o) => o.value === dt)) $('#upType').value = dt; }
 });
 
+
+// ---- end user statement (customers) ----------------------------------------------------
+let eus = null, eusDone = null;
+async function startEus() {
+  const { data, error } = await P.rpc('eus_open', { p_token: token });
+  if (error) return errorScreen('');
+  if (!data.ok) return errorScreen(data.reason);
+  eus = data; renderEus();
+}
+function renderEus() {
+  const stmt = `<div class="rounded-lg bg-slate-50 border border-slate-200 p-4 text-sm text-slate-700 whitespace-pre-line">${esc(eus.statement.text)}</div>`;
+  if (eusDone) {
+    $('#app').innerHTML = `<div class="mb-6"><div class="text-sm text-slate-500">${esc(eus.issuer)}</div><h1 class="text-2xl font-semibold tracking-tight">Thank you</h1></div>
+      ${card(`<p class="text-emerald-700">✓ Your end user statement for <b>${esc(eus.customer.name)}</b> was signed on ${esc(new Date(eusDone.signed_at).toLocaleString())} and is valid until ${fmt(eusDone.valid_until)}.</p>
+        <p class="text-xs text-slate-500 mt-2">Reference ${esc(String(eusDone.content_sha256 || '').slice(0, 16))} · wording version ${esc(eus.statement.version)}</p>
+        <h2 class="text-sm font-semibold mt-5 mb-2">Statement you signed</h2>${stmt}
+        <p class="text-sm mt-3">Signed by ${esc(eusDone.signer)}${eusDone.title ? ', ' + esc(eusDone.title) : ''}. End user: ${esc(eusDone.endUser)}.</p>
+        <button onclick="window.print()" class="noprint mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm hover:bg-slate-100">Print or save a copy</button>`)}
+      <p class="text-xs text-slate-400 text-center">Portal v${PORTAL_VERSION}</p>`;
+    return;
+  }
+  $('#app').innerHTML = `<div class="mb-6"><div class="text-sm text-slate-500">${esc(eus.issuer)}</div>
+    <h1 class="text-2xl font-semibold tracking-tight">Hello ${esc(eus.contact.name || '')}</h1>
+    <p class="text-slate-600">Please review and sign this end user statement for <b>${esc(eus.customer.name)}</b>. This private link expires ${fmt(eus.expires_at)}.${eus.last ? ` Your last statement was signed ${fmt(eus.last.signed_at)} and is valid until ${fmt(eus.last.valid_until)}.` : ''}</p></div>
+    ${card(`${h2('Statement', `Wording version ${esc(eus.statement.version)}. In this statement "the Seller" is ${esc(eus.issuer)} and "the Customer" is ${esc(eus.customer.name)}.`)}<div class="mt-3">${stmt}</div>`)}
+    ${card(`${h2('Your details', 'Typing your name and clicking Sign is your electronic signature.')}
+      <div class="grid sm:grid-cols-2 gap-3 mt-4">
+        <label class="text-sm">End user (who will use the products)<input id="euName" value="${esc(eus.customer.name)}" class="${inp} mt-1"></label>
+        <label class="text-sm">End user country (2-letter code)<input id="euCc" maxlength="2" value="${esc(eus.customer.country || '')}" class="${inp} mt-1 uppercase"></label>
+        <label class="text-sm sm:col-span-2">How will the products be used?<textarea id="euUse" rows="3" class="${inp} mt-1" placeholder="For example: installed in agricultural sprayers built and sold in Canada"></textarea></label>
+        <label class="text-sm">Your name<input id="euSigner" value="${esc(eus.contact.name || '')}" class="${inp} mt-1"></label>
+        <label class="text-sm">Your job title<input id="euTitle" value="${esc(eus.contact.job_title || '')}" class="${inp} mt-1"></label>
+      </div>
+      <label class="mt-4 flex gap-2 text-sm"><input id="euOk" type="checkbox" class="mt-0.5"> <span>I have read the statement above, I am authorized to sign it for ${esc(eus.customer.name)}, and I agree to it.</span></label>
+      <ul id="euErr" class="mt-3 text-sm text-red-600 list-disc pl-5"></ul>
+      <button data-a="signEus" class="mt-4 rounded-lg bg-slate-900 text-white px-5 py-2.5 font-medium hover:bg-slate-700">Sign statement</button>`)}
+    <p class="text-xs text-slate-400 text-center">Your visit and signature are recorded for compliance purposes.<br>Portal v${PORTAL_VERSION}</p>`;
+}
+async function signEus() {
+  const payload = { end_user_name: $('#euName').value.trim(), end_user_country: $('#euCc').value.trim().toUpperCase(), end_use: $('#euUse').value.trim(), signer_name: $('#euSigner').value.trim(), signer_title: $('#euTitle').value.trim(), accepted: $('#euOk').checked };
+  const errs = [];
+  if (!payload.end_user_name) errs.push('Enter the end user.'); if (payload.end_use.length < 5) errs.push('Describe how the products will be used.');
+  if (payload.end_user_country && !/^[A-Z]{2}$/.test(payload.end_user_country)) errs.push('Use a 2-letter country code (for example DE).');
+  if (!payload.signer_name) errs.push('Enter your name.'); if (!payload.signer_title) errs.push('Enter your job title.'); if (!payload.accepted) errs.push('Please tick the box to agree.');
+  const ul = $('#euErr'); ul.innerHTML = errs.map((e) => `<li>${esc(e)}</li>`).join(''); if (errs.length) return;
+  const { data, error } = await P.rpc('eus_submit', { p_token: token, p_payload: payload });
+  if (error || !data?.ok) { ul.innerHTML = (data?.errors || [REASONS[data?.reason] || error?.message || 'Could not submit']).map((e) => `<li>${esc(e)}</li>`).join(''); return; }
+  eusDone = { signed_at: data.signed_at, valid_until: data.valid_until, content_sha256: data.content_sha256, signer: payload.signer_name, title: payload.signer_title, endUser: payload.end_user_name }; renderEus(); window.scrollTo(0, 0);
+}
+
 // ---- boot --------------------------------------------------------------------------
 (async function () {
   if (!CFG.url || !CFG.key) { $('#app').innerHTML = card('<p class="text-sm text-slate-600">Paste your Supabase URL and anon key into the <code>CFG</code> block at the top of this file.</p>'); return; }
   if (!token) return errorScreen('invalid');
   sb = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
   P = sb.schema('compliance_portal');
+  const k = await P.rpc('link_kind', { p_token: token });
+  if (!k.error && k.data) {
+    if (!k.data.ok) return errorScreen(k.data.reason);
+    if (k.data.kind === 'customer_eus') return startEus();
+  }
   const { data, error } = await P.rpc('supplier_open', { p_token: token });
   if (error) return errorScreen('');
   if (!data.ok) return errorScreen(data.reason);
