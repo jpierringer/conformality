@@ -3,13 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="version" content="1.1.0">
+<meta name="version" content="1.2.0">
 <title>Conformality</title>
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#printArea{display:none}
+main div:has(>table){overflow-x:auto}
+@media(min-width:1024px){
+ #topbar{position:sticky;top:0;z-index:20}
+ main .overflow-x-auto{max-height:calc(100vh - 12rem);overflow:auto}
+ main .overflow-x-auto thead th{position:sticky;top:0;background:#fff;z-index:1;box-shadow:0 1px 0 #e2e8f0}
+ main table td,main table th{padding-top:.5rem!important;padding-bottom:.5rem!important}
+ #dlg{width:min(92vw,42rem)}
+ #dlg [class*="max-h-["]{max-height:calc(100vh - 17rem)!important}
+}
+@media(min-width:1536px){main{font-size:15px}}
 @page{margin:14mm}
 @media print{body{background:#fff}#app,#toast,dialog{display:none!important}#printArea{display:block!important;color:#111;font-size:10pt}
 #printArea table{width:100%;border-collapse:collapse;font-size:8pt}#printArea th,#printArea td{border-bottom:1px solid #ddd;padding:3px 4px;text-align:left;vertical-align:top}
@@ -23,11 +33,13 @@
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.2.0  Responsive layout (phone to wide desktop): the menu scrolls sideways on phones;
+//        desktop: full-width pages, sticky top bar and table headers, side-by-side Today and order file, wider dialogs.
 // 1.1.0  End user statements (customers sign online or upload), order file checklist, license determination,
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -45,7 +57,7 @@ const badge = (text, tone) => `<span class="inline-flex items-center rounded-ful
 const btn = (label, a, data = {}, tone = 'primary') => `<button data-a="${a}" ${Object.entries(data).map(([k,v])=>`data-${k}="${esc(v)}"`).join(' ')} class="rounded-lg px-3 py-1.5 text-sm font-medium ${({primary:'bg-slate-900 text-white hover:bg-slate-700',ghost:'border border-slate-300 hover:bg-slate-100',danger:'bg-red-600 text-white hover:bg-red-500'})[tone]}">${esc(label)}</button>`;
 
 // ---- dialogs -----------------------------------------------------------------
-function modal(html, wide) { $('#dlgBody').innerHTML = html; $('#dlg').style.width = wide ? 'min(94vw,64rem)' : ''; if (!$('#dlg').open) $('#dlg').showModal(); }
+function modal(html, wide) { $('#dlgBody').innerHTML = html; $('#dlg').style.width = wide ? 'min(94vw,76rem)' : ''; if (!$('#dlg').open) $('#dlg').showModal(); }
 const closeModal = () => $('#dlg').close();
 function askNote(title, required) {
   return new Promise((resolve) => {
@@ -60,14 +72,14 @@ function askNote(title, required) {
 
 // ---- shell -------------------------------------------------------------------
 function shell(inner) {
-  const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
+  const tab = (id, label) => `<button data-a="nav" data-v="${id}" class="px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${view===id?'bg-slate-900 text-white':'text-slate-600 hover:bg-slate-200'}">${label}</button>`;
   $('#app').innerHTML = `
-  <header class="bg-white border-b border-slate-200"><div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+  <header id="topbar" class="bg-white border-b border-slate-200"><div class="max-w-[1920px] mx-auto px-4 lg:px-8 py-2.5 flex items-center gap-3 flex-wrap">
     <div class="font-semibold tracking-tight mr-4">Conformality <span class="text-xs font-normal text-slate-400">v${APP_VERSION}</span></div>
-    <nav class="flex gap-1">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('screening','Screening')}${tab('trade','Trade')}${tab('review','Review')}${tab('audit','Audit')}</nav>
+    <nav class="flex gap-1 order-last w-full overflow-x-auto lg:order-none lg:w-auto lg:overflow-visible">${tab('today','Today')}${tab('suppliers','Suppliers')}${tab('skus','SKUs')}${tab('requests','Requests')}${tab('minerals','Minerals')}${tab('screening','Screening')}${tab('trade','Trade')}${tab('review','Review')}${tab('audit','Audit')}</nav>
     <div class="ml-auto flex items-center gap-3 text-sm text-slate-500"><a href="./conformality_user_guide.html" target="_blank" rel="noopener" class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 text-slate-700">User guide</a><span class="hidden sm:inline">${esc(profile?.full_name || user?.email)} · ${esc(profile?.role)}</span>${btn('Sign out','signout',{},'ghost')}</div>
   </div></header>
-  <main class="max-w-6xl mx-auto px-4 py-6">${inner}</main>`;
+  <main class="max-w-[1920px] mx-auto px-4 lg:px-8 py-5 lg:py-6">${inner}</main>`;
 }
 const loading = () => shell('<p class="text-slate-500">Loading…</p>');
 const fail = (e) => shell(`<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc(e.message || e)}</div>`);
@@ -85,7 +97,8 @@ async function renderToday() {
   const n = (s) => data.filter((x) => x.severity === s).length;
   const card = (label, v, tone) => `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="text-sm text-slate-500">${label}</div><div class="text-3xl font-semibold mt-1 ${tone}">${v}</div></div>`;
   shell(`
-    <div class="grid grid-cols-3 gap-3 mb-6">${card('Needs action now', n('high'), 'text-red-600')}${card('Coming up', n('medium'), 'text-amber-600')}${card('Low priority', n('low'), 'text-slate-600')}</div>
+    <div class="xl:grid xl:grid-cols-[16rem_1fr] xl:gap-6 xl:items-start">
+    <div class="grid grid-cols-3 xl:grid-cols-1 gap-3 mb-6 xl:mb-0 xl:sticky xl:top-20">${card('Needs action now', n('high'), 'text-red-600')}${card('Coming up', n('medium'), 'text-amber-600')}${card('Low priority', n('low'), 'text-slate-600')}</div>
     <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">
     ${data.length ? data.map((w) => `
       <div class="p-4 flex items-start gap-3">
@@ -93,7 +106,7 @@ async function renderToday() {
         <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
         ${w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'screening' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) ? btn('Review matches', 'nav', { v: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
       </div>`).join('') : '<p class="p-8 text-center text-slate-500">Nothing needs attention. Nice.</p>'}
-    </div>`);
+    </div></div>`);
 }
 
 async function renderSuppliers() {
@@ -164,7 +177,7 @@ async function renderSkus() {
   const { data, error } = await sb.from('v_sku_trace').select('*').order('sku');
   if (error) return fail(error);
   shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">SKUs</h2><span class="text-sm text-slate-500">${data.length} total</span>
-    <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64">
+    <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64 xl:w-96">
     <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add SKU', 'addSku')}</div>
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
   <tbody id="skuBody" class="divide-y divide-slate-100">${data.map((s) => `<tr><td class="p-3 font-medium">${esc(s.sku)}</td><td class="p-3">${esc(s.description || '')}</td><td class="p-3">${esc(s.supplier_name)}</td><td class="p-3">${cmrtBadge(s)}</td><td class="p-3">${fmt(s.valid_until)}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No SKUs yet. Add one, or import a CSV with columns: sku, description, supplier.</td></tr>'}</tbody></table></div>`);
@@ -795,14 +808,15 @@ async function openOrder(id) {
   const row = (c) => `<tr class="border-t border-slate-100 align-top"><td class="py-2 pr-2 w-24">${c.done ? badge('Done', 'green') : badge(c.level === 'track' || c.level === 'auto' ? 'To do' : 'Missing', c.level === 'hold' ? 'red' : c.level === 'note' ? 'amber' : 'gray')}</td><td class="py-2">${esc(c.label)}${!c.done && c.detail ? `<div class="text-xs text-slate-500">${esc(c.detail)}</div>` : ''}</td><td class="py-2 px-2 text-xs text-slate-400 whitespace-nowrap">${c.level === 'auto' ? '' : LEVEL_TXT[c.level] || ''}</td><td class="py-2 text-right">${c.done ? '' : act(c)}</td></tr>`;
   modal(`<div class="flex items-center gap-3"><h3 class="text-lg font-semibold">Order ${esc(o.reference)}</h3>${badge(ORDER_LABEL[o.status], ORDER_TONE[o.status])}</div>
     <p class="text-sm text-slate-500 mt-1">${fmt(o.transaction_date)} · to ${esc(o.destination_country || '?')} ${rule ? badge(rule.level, rule.level === 'watch' ? 'amber' : 'red') : ''}${o.screened_at ? ' · screened ' + fmt(o.screened_at) : ' · not screened yet'}</p>
-    <div class="mt-3 max-h-[58vh] overflow-auto pr-1">
+    <div class="mt-3 max-h-[58vh] overflow-auto pr-1"><div class="lg:grid lg:grid-cols-2 lg:gap-8"><div>
     ${holds.length ? `<div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800"><b>Holds</b><ul class="list-disc pl-5 mt-1">${holds.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${notes.length ? `<div class="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900"><b>Check before shipping</b><ul class="list-disc pl-5 mt-1">${notes.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${o.decision_notes ? `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>Decision (${fmt(o.decided_at)}):</b> ${esc(o.decision_notes)}</div>` : ''}
     <h4 class="font-semibold mt-4">Parties</h4><table class="w-full text-sm mt-1"><tbody>${o.parties.map((p) => `<tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500 w-32">${esc(ROLE[p.role] || p.role)}</td><td>${esc(p.party?.name)}</td><td>${esc(p.party?.country || '')}</td></tr>`).join('')}</tbody></table>
     <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">SKU</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table>
 
-    <div class="flex flex-wrap items-center gap-2 mt-6"><h4 class="font-semibold">Order file</h4><span class="text-xs text-slate-500">${nDone} of ${items.length} complete${dc.data && rt.data?.keep_until ? ' · keep records until ' + fmt(rt.data.keep_until) : ''}</span><div class="ml-auto flex gap-2">${btn('Download order file', 'ofZip', { id }, 'ghost')}${btn('Print', 'ofPrint', { id }, 'ghost')}</div></div>
+    </div><div>
+    <div class="flex flex-wrap items-center gap-2 mt-6 lg:mt-0"><h4 class="font-semibold">Order file</h4><span class="text-xs text-slate-500">${nDone} of ${items.length} complete${dc.data && rt.data?.keep_until ? ' · keep records until ' + fmt(rt.data.keep_until) : ''}</span><div class="ml-auto flex gap-2">${btn('Download order file', 'ofZip', { id }, 'ghost')}${btn('Print', 'ofPrint', { id }, 'ghost')}</div></div>
     <p class="text-xs text-slate-500">Everything an auditor would ask for on this order. ${domestic ? 'This is a domestic order, so the license and end user statement checks are skipped.' : ''}</p>
     <table class="w-full text-sm mt-1"><tbody>${items.map(row).join('')}</tbody></table>
 
@@ -825,6 +839,7 @@ async function openOrder(id) {
 
     <div class="flex items-center mt-4"><h4 class="font-semibold">Attached documents</h4><div class="ml-auto">${btn('+ Attach document', 'uploadRecord', { tx: id })}</div></div>
     <table class="w-full text-sm mt-1"><tbody>${docs.map((d) => `<tr class="border-t border-slate-100"><td class="py-1.5 w-44 text-slate-500">${esc(d.type?.name || DOC_LABEL[d.doc_type] || d.doc_type)}</td><td class="truncate max-w-[16rem]">${esc(d.file_name)}</td><td>${fmt(d.issued_on)}</td><td class="text-right">${btn('Open', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td class="py-2 text-slate-500">Nothing attached yet.</td></tr>'}</tbody></table>
+    </div></div>
     </div>
     <p class="text-xs text-slate-500 mt-3">This screens parties, the destination and item classifications, checks the order file, and records the decision. It does not decide whether a license is required.</p>
     <p id="fErr" class="text-xs text-red-600 mt-1 min-h-4"></p>
@@ -945,7 +960,7 @@ async function tradeDest() {
   const months = Number(setv('eus_valid_months', 12)) || 12, wording = String(setv('eus_statement_text', '')), ver = wording ? (await sha256(new TextEncoder().encode(wording))).slice(0, 8) : '';
   const LV = [['hold', 'Blocks shipping'], ['note', 'Warns'], ['track', 'Tracked only']];
   return {
-    html: `<div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="font-medium">Checks before an order ships</div>
+    html: `<div class="xl:grid xl:grid-cols-2 xl:gap-4 xl:items-start"><div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="font-medium">Checks before an order ships</div>
       <p class="text-sm text-slate-500 mt-1">Each check below appears on every order's file. Choose what happens when it is missing. <b>Blocks shipping</b> puts the order on hold (a person can still release it with a written reason). <b>Warns</b> adds it under "Check before shipping". <b>Tracked only</b> shows it on the checklist and nothing more. The starting levels are assumptions to confirm with your compliance lead.</p>
       <div class="overflow-x-auto mt-2"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="py-2 pr-3">Check</th><th class="py-2 pr-3">When it is missing</th><th class="py-2">Why this starting level</th></tr></thead>
       <tbody class="divide-y divide-slate-100">${ru.data.map((r) => `<tr class="align-top"><td class="py-2 pr-3 font-medium">${esc(r.label)}</td><td class="py-2 pr-3 whitespace-nowrap">${admin ? `<select data-rule="${esc(r.item)}" class="rounded-lg border border-slate-300 p-1.5 text-sm">${LV.map(([v, l]) => `<option value="${v}" ${r.level === v ? 'selected' : ''}>${l}</option>`).join('')}</select>` : esc(LEVEL_TXT[r.level])}</td><td class="py-2 text-slate-500">${esc(r.assumption || '')}</td></tr>`).join('')}</tbody></table></div>
@@ -957,6 +972,7 @@ async function tradeDest() {
         <label class="block mt-3 text-sm">Wording<textarea id="eusText" rows="12" class="${inp} font-mono text-xs">${esc(wording)}</textarea></label>
         <p id="fErr2" class="text-xs text-red-600 mt-1 min-h-4"></p><div class="text-right">${btn('Save statement settings', 'saveEusSettings')}</div>`
         : `<p class="text-sm mt-2">Valid for ${months} months.</p><pre class="mt-2 whitespace-pre-wrap text-xs bg-slate-50 rounded-lg p-3 border border-slate-200">${esc(wording)}</pre>`}</div>
+    </div>
 
     <div class="font-medium mb-1">Destinations</div>
     <p class="text-sm text-slate-500 mb-3">Countries that put an order on hold when it is screened. This list is intentionally empty to start: your admin and counsel decide what belongs here, so a wrong default can never give false comfort.</p>
