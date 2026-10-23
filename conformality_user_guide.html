@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.1.2">
+<meta name="version" content="1.2.0">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -69,7 +69,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.1.2 · Updated 22 Oct 2026 · Applies to app version 1.2.1 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.2.0 · Updated 22 Oct 2026 · Applies to app version 1.3.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -104,12 +104,26 @@
 <!-- ============ TODAY ============ -->
 <h2 id="today">Today</h2>
 <div class="purpose"><b>Purpose</b>Your to-do list. It gathers everything across the app that needs a person, sorted by urgency. If you only open one tab each day, make it this one.</div>
-<p>Three counters at the top show <i>Needs action now</i>, <i>Coming up</i> and <i>Low priority</i>. Each line has a button that takes you straight to the work:</p>
+<p>At the top of the list is the <b>Data currency</b> panel. Government data and reviews go out of date, so the panel shows, for each one, when it was last updated, when the next update is due, and a status: <span class="b g">Current</span>, <span class="b a">Due soon</span> or <span class="b r">Overdue</span>. It opens by itself when something needs attention.</p>
+<table>
+  <tr><th style="width:32%">Item</th><th style="width:14%">Due every</th><th>How it is kept up to date</th></tr>
+  <tr><td>Screening lists (restricted parties)</td><td>about 2 weeks</td><td>Loaded from a file on Screening. The date comes from the last load.</td></tr>
+  <tr><td>Smelter list (RMAP)</td><td>90 days</td><td>Loaded from a file on Minerals.</td></tr>
+  <tr><td>Tariff codes and programs</td><td>30 days</td><td>A person reviews the tariff schedule and notices, updates affected classifications, then presses <span class="btn">I checked this</span> and writes what was checked.</td></tr>
+  <tr><td>Export control rules (Commerce)</td><td>90 days</td><td>A person reviews recent rule changes, then records the check.</td></tr>
+  <tr><td>Conflict minerals form version</td><td>1 year</td><td>A person checks for a new CMRT version, then records the check.</td></tr>
+  <tr><td>Destination country rules</td><td>1 year</td><td>Review the Rules tab with counsel, then record the check.</td></tr>
+  <tr><td>End user statement wording</td><td>1 year</td><td>Counsel confirms the wording, then record the check.</td></tr>
+</table>
+<p>Each recorded check keeps your name, the date and your note, and is included in the Audit page. The intervals above are starting assumptions; ask your database administrator to change them if your compliance lead prefers different ones. Until a manual item has been recorded for the first time it appears as a low-priority reminder rather than an urgent one.</p>
+<p>Three counters show <i>Needs action now</i>, <i>Coming up</i> and <i>Low priority</i>. Each line has a button that takes you straight to the work:</p>
 <table>
   <tr><th style="width:30%">You see</th><th>What it means</th><th style="width:22%">Button</th></tr>
   <tr><td>Screen &lt;party&gt;</td><td>That supplier or customer has never been checked against the lists, or is due for a re-check (the interval is a setting; the Screening page flags "re-screen due" after 30 days).</td><td><span class="btn">Screen now</span> runs the check immediately.</td></tr>
   <tr><td>Screening list is out of date</td><td>The government lists were last loaded more than 14 days ago.</td><td><span class="btn">Load list</span> opens Screening.</td></tr>
   <tr><td>Possible list match</td><td>A party's name resembles a listed party. A person must decide whether it is the same one.</td><td><span class="btn">Review matches</span></td></tr>
+  <tr><td>End user statement expires soon / expired</td><td>A customer you have shipped to in the last 12 months has a statement that ends within 30 days (the warning window is a setting) or has already ended. It is shown as urgent if the customer also has an order waiting.</td><td><span class="btn">Send new link</span> opens the customer's statement.</td></tr>
+  <tr><td>Data needs updating</td><td>An item in the Data currency panel is due.</td><td><span class="btn">Record check</span></td></tr>
   <tr><td>Order on hold</td><td>An order failed a check and cannot ship until someone decides.</td><td><span class="btn">Open</span></td></tr>
   <tr><td>Product needs classification</td><td>A SKU has no approved export classification, or one is due for review.</td><td><span class="btn">Open</span></td></tr>
   <tr><td>Document or ownership form to review</td><td>A supplier uploaded something that needs your decision.</td><td><span class="btn">Open</span></td></tr>
@@ -394,7 +408,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <li><b>Roles.</b> Users have a role on their profile. Admins can approve ITAR classifications, release ITAR orders, and edit the Rules tab (shipment-check levels, end user statement wording and destinations). Other users can read and perform the routine work. Role names are shown top right next to your name.</li>
   <li><b>Settings</b> (stored in the database) include screening match thresholds, how many days before the list is "out of date" (14), re-screening interval (30 days), and customs retention years (5). Change these with your compliance lead, not casually.</li>
   <li><b>Protected data.</b> Screening lists, audit entries and approved classifications are write-protected. They can only change through the app's built-in actions, which is why the history can be trusted.</li>
-  <li><b>Setup.</b> The database is built by running the numbered SQL files (parts 1 through 10; part 10 adds end user statements and the order file) in order in the Supabase SQL editor. Each is safe to re-run. The app is a single <code>index.html</code> plus a supplier <code>portal.html</code>, with connection keys in the <code>CFG</code> block at the top of each. Keep your own keys when replacing a file with a newer version.</li>
+  <li><b>Setup.</b> The database is built by running the numbered SQL files (parts 1 through 11; part 10 adds end user statements and the order file, part 11 adds data currency and the expiry alerts) in order in the Supabase SQL editor. Each is safe to re-run. The app is a single <code>index.html</code> plus a supplier <code>portal.html</code>, with connection keys in the <code>CFG</code> block at the top of each. Keep your own keys when replacing a file with a newer version.</li>
   <li><b>Not yet built.</b> Automatic emailing of requests, scheduled nightly list loading, a customer-facing report page, and user and settings administration screens.</li>
 </ul>
 
@@ -440,12 +454,13 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.2.0</td><td>22 Oct 2026</td><td>Applies to app 1.3.0. Adds the Data currency panel and end user statement expiry alerts on Today, and database part 11.</td></tr>
   <tr><td>1.1.2</td><td>22 Oct 2026</td><td>Applies to app 1.2.1. Adds the section on installing the app as an icon on a phone or computer.</td></tr>
   <tr><td>1.1.1</td><td>22 Oct 2026</td><td>Applies to app 1.2.0. Notes on the desktop layout: pages use the full screen width, the top bar and table headings stay in view while scrolling, and order files open in two columns.</td></tr>
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.1.2</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.2.0</p>
 </main>
 </div>
 </body>
