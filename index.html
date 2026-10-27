@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="version" content="1.3.0">
+<meta name="version" content="1.3.2">
 <title>Conformality</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -43,6 +43,8 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.3.2  Suppliers: Edit, Deactivate / Reactivate, and Merge (admin) so a duplicate or misnamed supplier can be cleaned up. Needs database part 13.
+// 1.3.1  License determination no longer defaults to NLR; the choice is blank unless every item is EAR99.
 // 1.3.0  Today: Data currency panel (when outside data and reviews were last updated, with an "I checked this" record),
 //        alerts for expiring end user statements. Needs database part 11.
 // 1.2.1  App icons: browser favicon, iPhone home-screen, Android and desktop install icons.
@@ -52,7 +54,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.2';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -164,8 +166,9 @@ async function dataCheckSave({ code }) {
 
 async function renderSuppliers() {
   loading();
-  const [sr, cr] = await Promise.all([sb.from('v_supplier_status').select('*').order('name'), sb.from('party_contacts').select('party_id,name,email').eq('is_active', true).order('created_at', { ascending: false })]);
+  const [sr, cr, ir] = await Promise.all([sb.from('v_supplier_status').select('*').order('name'), sb.from('party_contacts').select('party_id,name,email').eq('is_active', true).order('created_at', { ascending: false }), sb.from('parties').select('id,name,country,notes').contains('roles', ['supplier']).eq('is_active', false).order('name')]);
   const { data, error } = sr; if (error || cr.error) return fail(error || cr.error);
+  const inactive = ir.data || [];
   const contactOf = new Map(); for (const c of cr.data) if (!contactOf.has(c.party_id)) contactOf.set(c.party_id, c);
   const cmrt = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
   shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2>${btn('+ Add supplier', 'addSupplier')}</div>
@@ -177,8 +180,10 @@ async function renderSuppliers() {
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
       <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
       <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
-      <td class="p-3 text-right whitespace-nowrap">${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
-    </tbody></table></div>`);
+      <td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
+    </tbody></table></div>
+  ${inactive.length ? `<details class="mt-4 rounded-xl bg-white border border-slate-200 p-3"><summary class="text-sm font-medium cursor-pointer">Inactive suppliers (${inactive.length})</summary>
+    <table class="w-full text-sm mt-2"><tbody class="divide-y divide-slate-100">${inactive.map((i) => `<tr class="text-slate-500"><td class="p-2 font-medium">${esc(i.name)}<div class="text-xs text-slate-400">${esc(i.country || '')}${i.notes ? ' · ' + esc(String(i.notes).split('\n').pop()) : ''}</div></td><td class="p-2 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: i.id }, 'ghost')} ${btn('Reactivate', 'supplierActive', { id: i.id, on: '1' }, 'ghost')}</td></tr>`).join('')}</tbody></table></details>` : ''}`);
 }
 
 const isCmrt = (d) => d.doc_type === 'cmrt' || (/cmrt/i.test((d.file_name || '') + ' ' + (d.title || '')) && /\.xlsx?$/i.test(d.file_name || ''));
@@ -904,16 +909,17 @@ async function licenseModal(id) {
   if (t.error) return toast(needPart10(t.error));
   const o = t.data, ids = o.lines.map((l) => l.sku_id), cls = ids.length ? (await sb.from('v_trade_skus').select('sku_id,jurisdiction,eccn,cur_id').in('sku_id', ids)).data || [] : [];
   const allEar99 = ids.length > 0 && ids.every((i) => { const c = cls.find((x) => x.sku_id === i); return c && c.cur_id && c.jurisdiction === 'EAR' && String(c.eccn || '').toUpperCase() === 'EAR99'; });
-  const cur = o.license_determination || 'nlr';
+  const cur = o.license_determination || (allEar99 ? 'nlr' : '');
   modal(`<h3 class="text-lg font-semibold">License determination: order ${esc(o.reference)}</h3>
     <p class="text-sm text-slate-600 mt-1">Record whether a license is needed to export this order to ${esc(o.destination_country || 'the destination')}. A person makes this decision and the app records it. For an ECCN other than EAR99, check the Commerce Country Chart for the destination and the reasons for control.</p>
-    <label class="block mt-3 text-sm">Determination<select id="lcD" class="${inp}">${Object.entries(LICENSE_LABEL).map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label class="block mt-3 text-sm">Determination<select id="lcD" class="${inp}">${cur ? '' : '<option value="" selected>Choose...</option>'}${Object.entries(LICENSE_LABEL).map(([k, v]) => `<option value="${k}" ${cur === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
     <label class="block mt-3 text-sm">License number or exception code (not needed for NLR)<input id="lcB" value="${esc(o.license_basis || '')}" class="${inp}"></label>
     <label class="block mt-3 text-sm">How was this decided? (required)<textarea id="lcN" rows="3" class="${inp}" placeholder="For example: all items EAR99, destination is not embargoed, end user statement on file.">${esc(o.license_note || (allEar99 ? 'All items are EAR99. Destination and end user checked.' : ''))}</textarea></label>
     <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
     <div class="mt-3 flex justify-end gap-2">${btn('Back', 'openOrder', { id }, 'ghost')}${btn('Save', 'ofLicenseSave', { id })}</div>`);
 }
 async function licenseSave({ id }) {
+  if (!$('#lcD').value) return ($('#fErr').textContent = 'Choose a determination: NLR, license required, or license exception.');
   const r = await sb.rpc('set_order_license', { p_tx: id, p_determination: $('#lcD').value, p_basis: $('#lcB').value.trim() || null, p_note: $('#lcN').value.trim() });
   if (r.error) return ($('#fErr').textContent = r.error.message);
   toast('License determination recorded'); afterOrderChange(id);
@@ -1598,6 +1604,68 @@ const actions = {
     const { error } = await sb.from('parties').insert({ name, country: c || null, roles: ['supplier'] });
     if (error) return ($('#fErr').textContent = error.message);
     closeModal(); toast('Supplier added'); route();
+  },
+  editSupplier: async ({ id }) => {
+    const r = await sb.from('parties').select('id,name,country,address_line,city,postal_code,website,notes,is_active').eq('id', id).single();
+    if (r.error) return toast(r.error.message);
+    const c = r.data;
+    modal(`<h3 class="text-lg font-semibold">Edit supplier</h3>
+      <label class="block mt-3 text-sm">Company name<input id="sName" value="${esc(c.name)}" class="${inp}"></label>
+      <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">Country (2 letters)<input id="sCountry" maxlength="2" value="${esc(c.country || '')}" class="${inp} uppercase"></label>
+      <label class="block mt-3 text-sm">Website<input id="sWeb" value="${esc(c.website || '')}" class="${inp}"></label></div>
+      <label class="block mt-3 text-sm">Address<input id="sAddr" value="${esc(c.address_line || '')}" class="${inp}"></label>
+      <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">City<input id="sCity" value="${esc(c.city || '')}" class="${inp}"></label><label class="block mt-3 text-sm">Postal code<input id="sPost" value="${esc(c.postal_code || '')}" class="${inp}"></label></div>
+      <label class="block mt-3 text-sm">Notes<textarea id="sNotes" rows="2" class="${inp}">${esc(c.notes || '')}</textarea></label>
+      <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+      <div class="mt-3 flex flex-wrap justify-between gap-2"><div class="flex gap-2">${c.is_active ? btn('Deactivate', 'supplierActive', { id, on: '0' }, 'danger') : btn('Reactivate', 'supplierActive', { id, on: '1' }, 'ghost')}${isAdminUser() && c.is_active ? btn('Merge into another...', 'mergeSupplier', { id }, 'ghost') : ''}</div>
+      <div class="flex gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSupplierEdit', { id })}</div></div>`);
+  },
+  saveSupplierEdit: async ({ id }) => {
+    const name = $('#sName').value.trim(), c = $('#sCountry').value.trim().toUpperCase();
+    if (!name) return ($('#fErr').textContent = 'Enter the company name.');
+    if (c && !/^[A-Z]{2}$/.test(c)) return ($('#fErr').textContent = 'Country must be a 2-letter code, or leave it blank.');
+    const v = (i) => $(i).value.trim() || null;
+    const { error } = await sb.from('parties').update({ name, country: c || null, website: v('#sWeb'), address_line: v('#sAddr'), city: v('#sCity'), postal_code: v('#sPost'), notes: v('#sNotes') }).eq('id', id);
+    if (error) return ($('#fErr').textContent = error.message);
+    closeModal(); toast('Supplier saved'); route();
+  },
+  supplierActive: async ({ id, on }) => {
+    const act = on === '1';
+    const r = await sb.from('parties').select('name').eq('id', id).single();
+    if (r.error) return toast(r.error.message);
+    if (!act) {
+      const k = await sb.from('skus').select('id', { count: 'exact', head: true }).eq('supplier_id', id).eq('status', 'active');
+      const n = k.count || 0;
+      const note = await askNote(`Deactivate ${r.data.name}? ${n ? n + ' active SKU(s) still point to this supplier; to move them use Merge, or change them first. ' : ''}It will disappear from this list and stop being re-screened. Nothing is deleted. Why?`, true);
+      if (note === null) return;
+      const u = await sb.from('parties').update({ is_active: false, notes: ((await sb.from('parties').select('notes').eq('id', id).single()).data?.notes || '') + `\nDeactivated ${new Date().toISOString().slice(0, 10)}: ${note}` }).eq('id', id);
+      if (u.error) return toast(u.error.message);
+      toast('Supplier deactivated');
+    } else {
+      const u = await sb.from('parties').update({ is_active: true }).eq('id', id);
+      if (u.error) return toast(u.error.message);
+      toast('Supplier reactivated');
+    }
+    closeModal(); route();
+  },
+  mergeSupplier: async ({ id }) => {
+    const [a, b] = await Promise.all([sb.from('parties').select('id,name').eq('id', id).single(), sb.from('parties').select('id,name,country').contains('roles', ['supplier']).eq('is_active', true).neq('id', id).order('name')]);
+    if (a.error || b.error) return toast((a.error || b.error).message);
+    modal(`<h3 class="text-lg font-semibold">Merge "${esc(a.data.name)}" into another supplier</h3>
+      <p class="text-sm text-slate-600 mt-2">Everything attached to <b>${esc(a.data.name)}</b> moves to the supplier you choose: SKUs, contacts, documents and conflict minerals declarations, requests and cases. Then <b>${esc(a.data.name)}</b> is made inactive. Screening history stays on the old record. This cannot be undone with one click.</p>
+      <label class="block mt-3 text-sm">Keep this supplier<select id="mTo" class="${inp}"><option value="">Choose...</option>${b.data.map((x) => `<option value="${x.id}">${esc(x.name)}${x.country ? ' (' + esc(x.country) + ')' : ''}</option>`).join('')}</select></label>
+      <label class="block mt-3 text-sm">Reason (required)<input id="mWhy" class="${inp}" placeholder="For example: duplicate entry"></label>
+      <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Merge', 'mergeSupplierGo', { id }, 'danger')}</div>`);
+  },
+  mergeSupplierGo: async ({ id }) => {
+    const to = $('#mTo').value, why = $('#mWhy').value.trim();
+    if (!to) return ($('#fErr').textContent = 'Choose the supplier to keep.');
+    if (!why) return ($('#fErr').textContent = 'Write a short reason.');
+    const r = await sb.rpc('merge_suppliers', { p_from: id, p_into: to, p_note: why });
+    if (r.error) return ($('#fErr').textContent = /merge_suppliers/.test(r.error.message) && /function|schema cache/i.test(r.error.message) ? 'Database part 13 has not been run yet.' : r.error.message);
+    const m = r.data || {};
+    closeModal(); toast(`Merged: ${m.skus || 0} SKUs, ${m.contacts || 0} contacts, ${m.documents || 0} documents moved`); route();
   },
   addContact: async ({ id, name }) => {
     const { data, error } = await sb.from('party_contacts').select('id,name,email,phone,job_title').eq('party_id', id).eq('is_active', true).order('created_at', { ascending: false }).limit(1);
