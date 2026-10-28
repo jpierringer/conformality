@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.8.5">
+<meta name="version" content="1.8.6">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -73,7 +73,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.8.5 · Updated 28 Oct 2026 · Applies to app version 1.8.5 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.8.6 · Updated 28 Oct 2026 · Applies to app version 1.8.6 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -405,6 +405,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <div class="purpose"><b>Purpose</b>A filing cabinet for import and export paperwork, with automatic retention dates. Customs authorities can ask for these documents years later.</div>
 <div class="example"><b class="l">Example (made-up names)</b>A customs authority asks for the invoice and purchase order for a shipment from three years ago. Because they were attached to the order, you open it and download the order file. The <i>keep until</i> date tells you how long you must hold on to such records before you may discard them.</div>
 <p><span class="btn">+ Upload record</span>. Types: entry summary, commercial invoice, packing list, transport document, export filing, broker file, export licence, purchase order, contract, certificates of origin and of conformance, TAA/BAA certificate and end user statement. Optionally link it to an order. The <b>keep until</b> date is calculated from the document date using the retention period (default five years, an admin setting); for documents on an order it counts from the later of the order date and the ship date. Files cannot be changed or deleted once stored; each is fingerprinted.</p>
+<p><b>Finding a record.</b> Type in the search box (title, file name or order number), or pick a type, an order (or <i>Not on an order</i>) or a keep-until range such as <i>within 90 days</i>. Click a column heading to sort by it; click again to reverse. <i>Clear filters</i> resets the list, and the count beside it shows how many records match.</p>
 
 <h3>5. Rules</h3>
 <div class="purpose"><b>Purpose</b>The settings that decide when an order is held or warned: shipment-check levels, end user statement settings, and the list of destination countries.</div>
@@ -548,6 +549,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.8.6</td><td>28 Oct 2026</td><td>Applies to app 1.8.6. Customs records can be searched (title, file name, order), filtered by type, order (or "not on an order") and keep-until (within 90 days, passed, or later), and sorted by clicking any column heading.</td></tr>
   <tr><td>1.8.5</td><td>28 Oct 2026</td><td>Applies to app 1.8.5. The Configuration button shows a count pill with the total of its items. Any count of 100 or more is shown as 99+; hover over a pill to see the exact number.</td></tr>
   <tr><td>1.8.4</td><td>28 Oct 2026</td><td>Applies to app 1.8.4. The Review inbox shows an amber count on its tabs (Documents, Ownership forms, Screening matches, Document requests) and a total on the Review inbox menu item. Document requests counts only overdue requests. CMRT check has no count because it is a tool you run, not a queue.</td></tr>
   <tr><td>1.8.3</td><td>28 Oct 2026</td><td>Applies to app 1.8.3. The Configuration drop-down shows an amber count pill next to each item that has overdue work: Suppliers (overdue requests and suppliers with no CMRT and no request out), Classifications (unclassified SKUs and pending classifications), Customers (expired end user statements), Government data (overdue list and form reviews) and Rules (overdue destination-rule and statement-wording reviews).</td></tr>
@@ -571,7 +573,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.8.5</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.8.6</p>
 </main>
 </div>
 </body>
