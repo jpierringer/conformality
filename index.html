@@ -43,6 +43,7 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.8.4  Count pills on the Review inbox tabs (Documents, Ownership forms, Screening matches, Document requests) and a total on the Review inbox menu item.
 // 1.8.3  Count pills in the Configuration drop-down for Suppliers, Classifications, Customers, Government data and Rules (overdue or needs-action items only).
 // 1.8.2  The order file pop-up fits the screen height: title, progress and Next step stay at the top, the details scroll, and the buttons stay at the bottom (phones included). Other pop-ups scroll instead of running off the screen.
 // 1.8.1  The Data currency panel is off the Dashboard (it lives on Configuration > Government data). The Configuration drop-down shows a count pill on Government data when lists or reviews are overdue.
@@ -72,7 +73,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.8.3';
+const APP_VERSION = '1.8.4';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -183,6 +184,11 @@ let workCache = null;   // { at, rows, cur } from v_open_work and v_data_currenc
 const RULE_SOURCES = ['destinations', 'eus_wording'];   // reviews that belong to Configuration > Rules; the rest belong to Government data
 const overdueData = (rules) => ((workCache && workCache.cur) || []).filter((r) => r.status === 'overdue' && RULE_SOURCES.includes(r.code) === !!rules).length;
 // Count shown beside a Configuration item: things in that area that are overdue or need action.
+const pillHtml = (n) => n ? `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="${n} need attention">${n}</span>` : '';
+// Count shown beside a Review inbox tab: items waiting for someone to decide or act.
+const INBOX_KINDS = { review: ['document_review'], ownership: ['ownership_review'], screening: ['case_open'], requests: ['request_overdue'], minerals: [] };
+const inboxCount = (v) => ((workCache && workCache.rows) || []).filter((w) => (INBOX_KINDS[v] || []).includes(w.kind)).length;
+const inboxTotal = () => Object.keys(INBOX_KINDS).reduce((n, v) => n + inboxCount(v), 0);
 function menuCount(v, t) {
   const rows = (workCache && workCache.rows) || [], today = todayStr();
   if (v === 'govdata') return overdueData(false);
@@ -217,6 +223,7 @@ function bellHtml() {
 function paintBell() {
   const el = document.getElementById('bellCount'); if (!el) return;
   const n = bellCount(); el.textContent = n > 99 ? '99+' : String(n); el.classList.toggle('hidden', !n);
+  document.querySelectorAll('[data-pillfor]').forEach((e) => { e.innerHTML = pillHtml(e.dataset.pillfor === 'total' ? inboxTotal() : inboxCount(e.dataset.pillfor)); });
   const m = document.getElementById('navmenu'); if (m && m.dataset.g === 'bell') m.innerHTML = bellHtml();
 }
 async function refreshBell(force) {
@@ -228,12 +235,12 @@ async function refreshBell(force) {
 function shell(inner) {
   closeNavMenu();
   if (['review', 'ownership', 'screening', 'requests', 'minerals'].includes(view)) {
-    const pill = (v, l, ic) => `<button data-a="nav" data-v="${v}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${view === v ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(ic)}${l}</button>`;
+    const pill = (v, l, ic) => `<button data-a="nav" data-v="${v}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${view === v ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(ic)}${l}<span data-pillfor="${v}">${pillHtml(inboxCount(v))}</span></button>`;
     inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('ownership', 'Ownership forms', 'users')}${pill('screening', 'Screening matches', 'shield')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'CMRT check', 'search')}</div></div>` + inner;
   }
   const cls = (on) => on ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200';
   const group = (n, gi) => `<button data-a="menu" data-g="${gi}" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label} <span class="text-xs opacity-70">&#9662;</span></button>`;
-  const tab = (n) => `<button data-a="nav" data-v="${n.v}" ${n.t ? `data-t="${n.t}"` : ''} class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}</button>`;
+  const tab = (n) => `<button data-a="nav" data-v="${n.v}" ${n.t ? `data-t="${n.t}"` : ''} class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}${n.id === 'inbox' ? `<span data-pillfor="total">${pillHtml(inboxTotal())}</span>` : ''}</button>`;
   const iconBtn = 'relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-100';
   const nb = bellCount();
   $('#app').innerHTML = `
