@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.7.1">
+<meta name="version" content="1.8.1">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -60,7 +60,7 @@
   <a href="#requests">Document requests</a>
   <a href="#minerals">CMRT check</a>
   <a href="#screening">Screening matches</a>
-  <a href="#trade">Trade Compliance</a>
+  <a href="#trade">Orders, classification and trade rules</a>
   <a href="#review">Documents</a>
   <a href="#govdata">Government data</a>
   <a href="#audit">Audit log</a>
@@ -73,7 +73,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.7.1 · Updated 27 Oct 2026 · Applies to app version 1.7.1 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.8.1 · Updated 28 Oct 2026 · Applies to app version 1.8.1 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -85,7 +85,7 @@
   <tr><th style="width:26%">Job</th><th>In plain words</th><th style="width:22%">Where</th></tr>
   <tr><td><b>Conflict minerals</b></td><td>Customers ask us to prove our products do not fund armed conflict through tin, tantalum, tungsten or gold (3TG). Suppliers send a standard form listing the smelters (metal refiners) they use. We check each smelter against an official list.</td><td>Configuration &gt; Suppliers, Conflict Minerals, Document review</td></tr>
   <tr><td><b>Restricted party screening</b></td><td>Governments publish lists of people and companies we are not allowed to do business with. We compare our suppliers and customers against those lists and record every decision.</td><td>Restricted Party Screening</td></tr>
-  <tr><td><b>Export and import compliance</b></td><td>Every product has an export-control classification and a customs tariff code. Each order is checked before it ships: who is buying, where it is going, and what it is.</td><td>Trade Compliance</td></tr>
+  <tr><td><b>Export and import compliance</b></td><td>Every product has an export-control classification and a customs tariff code. Each order is checked before it ships: who is buying, where it is going, and what it is.</td><td>Orders, Configuration</td></tr>
   <tr><td><b>Evidence trail</b></td><td>Every change is logged with who, when and what. Entries are chained together so tampering can be detected.</td><td>Audit</td></tr>
 </table>
 
@@ -106,8 +106,8 @@
 <table>
   <tr><th style="width:30%">Top menu</th><th>What is in it</th></tr>
   <tr><td><b>Dashboard</b></td><td>What needs attention now, and when outside data is due for an update. Filter by All, High, Medium or Low.</td></tr>
-  <tr><td><b>Orders</b></td><td>Customer orders and their shipment checklist (the Orders tab of Trade Compliance).</td></tr>
-  <tr><td><b>Review inbox</b></td><td>Everything waiting for a decision, as four items at the top: <b>Documents</b> (forms and files that suppliers and customers sent in), <b>Screening matches</b> (restricted party screening), <b>Document requests</b> (ask suppliers for their conflict minerals forms) and <b>CMRT check</b>.</td></tr>
+  <tr><td><b>Orders</b></td><td>Customer orders and their shipment checklist (the trade compliance work).</td></tr>
+  <tr><td><b>Review inbox</b></td><td>Everything waiting for a decision, as items at the top: <b>Documents</b> (files that suppliers and customers sent in), <b>Ownership forms</b> (suppliers' lists of their owners), <b>Screening matches</b> (restricted party screening), <b>Document requests</b> (ask suppliers for their conflict minerals forms) and <b>CMRT check</b>.</td></tr>
   <tr><td><b>Records</b> (drop-down)</td><td><b>Customs records</b> and the <b>Audit log</b> (the permanent record of who changed what).</td></tr>
   <tr><td><b>Configuration</b> (drop-down)</td><td>The set-up information the other areas depend on: <b>Suppliers</b>, <b>Products</b> (the SKU list), <b>Classifications</b>, <b>Customers</b>, <b>Government data</b> and <b>Rules</b>.</td></tr>
 </table>
@@ -133,11 +133,11 @@
 <p>We sell a sensor, <b>XYZ-2</b>, made by our supplier <b>Brightline Electronics</b>. A new Canadian customer, <b>Prairie Harvest Equipment</b>, orders two units. Order number <b>SO-1042</b>.</p>
 <table>
   <tr><th style="width:5%">#</th><th style="width:30%">What you do</th><th>Where</th><th style="width:30%">Why it matters</th></tr>
-  <tr><td>1</td><td>Add Prairie Harvest as a customer, with a contact person.</td><td>Trade &gt; Customers &amp; ship-to</td><td>Only parties that exist in the app can be screened and put on orders.</td></tr>
-  <tr><td>2</td><td>Press <span class="btn">EUS</span>, then <i>Send signing link</i>. The contact signs on a web page.</td><td>Trade &gt; Customers &amp; ship-to</td><td>The signed end user statement is the customer's promise about who will use the products and where. Many export rules expect it.</td></tr>
+  <tr><td>1</td><td>Add Prairie Harvest as a customer, with a contact person.</td><td>Configuration &gt; Customers</td><td>Only parties that exist in the app can be screened and put on orders.</td></tr>
+  <tr><td>2</td><td>Press <span class="btn">EUS</span>, then <i>Send signing link</i>. The contact signs on a web page.</td><td>Configuration &gt; Customers</td><td>The signed end user statement is the customer's promise about who will use the products and where. Many export rules expect it.</td></tr>
   <tr><td>3</td><td>Screen Prairie Harvest against the government lists. No match, so nothing more to do.</td><td>Screening</td><td>Proves you checked before selling, and which list version you used.</td></tr>
-  <tr><td>4</td><td>Classify XYZ-2: jurisdiction EAR, ECCN <i>EAR99</i>, source <i>Supplier stated</i>, short rationale, then approve.</td><td>Trade &gt; Classification</td><td>The classification says how strictly the product is controlled. It is recorded once and reused for every order.</td></tr>
-  <tr><td>5</td><td>Create order SO-1042: customer, destination CA, item XYZ-2 x 2. Press <span class="btn">Screen order</span>.</td><td>Trade &gt; Orders</td><td>The app checks the parties, destination and items together.</td></tr>
+  <tr><td>4</td><td>Classify XYZ-2: jurisdiction EAR, ECCN <i>EAR99</i>, source <i>Supplier stated</i>, short rationale, then approve.</td><td>Configuration &gt; Classifications</td><td>The classification says how strictly the product is controlled. It is recorded once and reused for every order.</td></tr>
+  <tr><td>5</td><td>Create order SO-1042: customer, destination CA, item XYZ-2 x 2. Press <span class="btn">Screen order</span>.</td><td>Orders</td><td>The app checks the parties, destination and items together.</td></tr>
   <tr><td>6</td><td>The order is <span class="b a">On hold</span>: <i>License determination not recorded</i>. Open it, press <i>Record</i>, choose <i>No license required (NLR)</i>, and write why (for example "All items EAR99, customer signed EUS"). The order moves to <span class="b g">Cleared</span>, with a note that the purchase order is still missing.</td><td>Order file</td><td>A person, not the app, decides whether a licence is needed. The app only makes sure that decision exists before shipping.</td></tr>
   <tr><td>7</td><td>Attach the customer's purchase order. The note disappears and the order file shows this item as done.</td><td>Order file &gt; Attach document</td><td>Documents on the order become part of the evidence file.</td></tr>
   <tr><td>8</td><td>Ship. Enter the ship date and attach the invoice and shipping documents.</td><td>Order file</td><td>The ship date starts the record-keeping clock (five years in this version, to be confirmed with counsel).</td></tr>
@@ -159,7 +159,7 @@
 <h2 id="today">Dashboard</h2>
 <div class="purpose"><b>Purpose</b>Your to-do list. It gathers everything across the app that needs a person, sorted by urgency. If you only open one page each day, make it this one. It used to be called Today.</div>
 <div class="example"><b class="l">Example (made-up names)</b>On Monday morning you open the Dashboard and see three things: <i>Screen Meridian Trading (never screened)</i>, <i>End user statement expires soon: Prairie Harvest</i> and <i>Tariff codes and programs needs updating</i>. You work down the list: screen the company, send Prairie Harvest a new signing link, review the tariff notices and press <i>I checked this</i>. Ten minutes, and you did not have to remember three different deadlines.</div>
-<p>At the top of the list is the <b>Data currency</b> panel. Government data and reviews go out of date, so the panel shows, for each one, when it was last updated, when the next update is due, and a status: <span class="b g">Current</span>, <span class="b a">Due soon</span> or <span class="b r">Overdue</span>. It opens by itself when something needs attention.</p>
+<p>The <b>Data currency</b> table lives on <b>Configuration &gt; Government data</b>, not on the Dashboard. Government data and reviews go out of date, so the table shows, for each one, when it was last updated, when the next update is due, and a status: <span class="b g">Current</span>, <span class="b a">Due soon</span> or <span class="b r">Overdue</span>. It opens by itself when something needs attention. When anything is overdue, a small amber count appears beside <b>Government data</b> when you open the Configuration menu, and the Dashboard lists each overdue item as a work item.</p>
 <table>
   <tr><th style="width:32%">Item</th><th style="width:14%">Due every</th><th>How it is kept up to date</th></tr>
   <tr><td>Screening lists (restricted parties)</td><td>about 2 weeks</td><td>Loaded from a file on Screening. The date comes from the last load.</td></tr>
@@ -171,7 +171,7 @@
   <tr><td>End user statement wording</td><td>1 year</td><td>Counsel confirms the wording, then record the check.</td></tr>
 </table>
 <p>Each recorded check keeps your name, the date and your note, and is included in the Audit page. The intervals above are starting assumptions; ask your database administrator to change them if your compliance lead prefers different ones. Until a manual item has been recorded for the first time it appears as a low-priority reminder rather than an urgent one.</p>
-<p>The page is split into an <b>Urgent</b> section (everything marked <span class="b r">High</span>), the Data currency panel, and an <b>Other items</b> section (<span class="b a">Medium</span> and <span class="b n">Low</span>).</p>
+<p>The page is split into an <b>Urgent</b> section (everything marked <span class="b r">High</span>) and an <b>Other items</b> section (<span class="b a">Medium</span> and <span class="b n">Low</span>).</p>
 <p>Three counters, <i>High</i>, <i>Medium</i> and <i>Low</i>, use the same names as the badges on each line. <b>Click a counter</b> to show only those items; click it again, or press <span class="btn">Show all</span>, to see everything. Each line has a button that takes you straight to the work:</p>
 <table>
   <tr><th style="width:30%">You see</th><th>What it means</th><th style="width:22%">Button</th></tr>
@@ -179,7 +179,7 @@
   <tr><td>Screening list is out of date</td><td>The government lists were last loaded more than 14 days ago.</td><td><span class="btn">Load list</span> opens Government data.</td></tr>
   <tr><td>Possible list match</td><td>A party's name resembles a listed party. A person must decide whether it is the same one.</td><td><span class="btn">Review matches</span></td></tr>
   <tr><td>End user statement expires soon / expired</td><td>A customer you have shipped to in the last 12 months has a statement that ends within 30 days (the warning window is a setting) or has already ended. It is shown as urgent if the customer also has an order waiting.</td><td><span class="btn">Send new link</span> opens the customer's statement.</td></tr>
-  <tr><td>Data needs updating</td><td>An item in the Data currency panel is due.</td><td><span class="btn">Record check</span></td></tr>
+  <tr><td>Data needs updating</td><td>A government list or review in the Data currency table is due.</td><td><span class="btn">Record check</span></td></tr>
   <tr><td>Order on hold</td><td>An order failed a check and cannot ship until someone decides.</td><td><span class="btn">Open</span></td></tr>
   <tr><td>Product needs classification</td><td>A SKU has no approved export classification, or one is due for review.</td><td><span class="btn">Open</span></td></tr>
   <tr><td>Document or ownership form to review</td><td>A supplier uploaded something that needs your decision.</td><td><span class="btn">Open</span></td></tr>
@@ -321,7 +321,7 @@
 <div class="warn"><b>If you confirm a match:</b> stop shipments and payments involving that party, and escalate to counsel. The app records the decision; it does not handle the legal response.</div>
 
 <!-- ============ TRADE ============ -->
-<h2 id="trade">Trade Compliance</h2>
+<h2 id="trade">Orders, classification and trade rules <small>(Orders, Records and Configuration menus)</small></h2>
 <p>When you open an order, the top of the order file shows a <b>progress strip</b> (Screened, Checklist complete, Cleared, Shipped) and a <b>Next step</b> banner. The banner names the first thing holding the order, such as a missing license decision, and gives the button to do it. Orders that are cleared say Ready to ship; blocked orders say so.</p>
 <div class="purpose"><b>Purpose</b>Export and import compliance. Before a product leaves the country we need to know how it is controlled; before an order ships we need to know who receives it and where. For imports we need the tariff code and country of origin so duties are right.</div>
 
@@ -334,7 +334,7 @@
   <tr><td><b>HTS code</b></td><td>Harmonized Tariff Schedule number used by customs to set the duty on imports.</td></tr>
   <tr><td><b>Country of origin</b></td><td>Where the product was made, for customs and tariff purposes.</td></tr>
 </table>
-<p>The Trade page has five sub-tabs: Classification, Orders, Customers &amp; ship-to, Customs records and Rules.</p>
+<p>This work is spread across the menu, each as its own page: <b>Orders</b>; <b>Records &gt; Customs records</b>; and, under <b>Configuration</b>, <b>Classifications</b>, <b>Customers</b> (shown as Customers &amp; ship-to) and <b>Rules</b>. The sections below keep their old numbering.</p>
 
 <h3>1. Classification</h3>
 <div class="purpose"><b>Purpose</b>Records the export-control and customs classification for each product, with who decided it, how, and when.</div>
@@ -388,6 +388,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <p><b>Supplier certificates.</b> A certificate of origin or conformance you already received from a supplier must currently be attached to each order separately; there is no "reuse an existing document" button yet.</p>
 
 <h3>3. Customers &amp; ship-to</h3>
+<p>Click a name (or <b>Open</b>) to see the <b>customer page</b>: four tiles (end user statement, restricted party screening, open orders, last order), a <b>Next step</b> banner, and tabs for Overview, Orders, End user statements, Contacts and History. The banner checks, in order: a screening match, no contact, no end user statement, an expired statement, a statement waiting for the customer to sign, an order on hold, a statement expiring within 30 days, and never screened. The same page works for ship-to parties and other non-supplier parties; the statement parts only appear for customers.</p>
 <div class="purpose"><b>Purpose</b>The list of non-supplier parties: customers, ship-to addresses, end users, consignees and freight forwarders. They need to exist here so they can be put on orders and screened. Customers also carry their <b>end user statement</b>.</div>
 <div class="example"><b class="l">Example (made-up names)</b>Prairie Harvest is a new customer. You press EUS and send the signing link. Their buyer types a name, names the end user and what the sensors are for, and agrees. The Customers table now shows <span class="b g">Valid</span>, and eleven months later Today reminds you to renew.</div>
 <p><span class="btn">+ Add party</span>: name, company or individual, country, one or more roles, address, and whether it is publicly traded. The <b>end user</b> is whoever finally uses the product, which may differ from the buyer. This matters for export rules. Deactivate a party instead of deleting it, so history is kept. Suppliers are managed on the Suppliers tab. Use <span class="btn">Contact</span> to record the person at the customer who will sign; one contact per company is enough.</p>
@@ -448,7 +449,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td><span class="b a">Accept with gaps</span></td><td>Usable but incomplete. A note records what is missing.</td></tr>
   <tr><td><span class="b r">Reject</span></td><td>Unusable. The supplier will need to send another.</td></tr>
 </table>
-<h3>Ownership submissions</h3>
+<h3>Ownership forms <small>(Review inbox &gt; Ownership forms)</small></h3>
 <p>Suppliers can certify who owns them. Ownership matters because sanctions rules (for example OFAC's "50 percent rule") can apply to a company owned by listed parties even when the company itself is not listed. Review the named owners, then <span class="btn">Accept &amp; screen owners</span> (the owners are added and screened) or <span class="btn">Send back</span>.</p>
 
 <!-- ============ AUDIT ============ -->
@@ -547,6 +548,9 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.8.1</td><td>28 Oct 2026</td><td>Applies to app 1.8.1. The Data currency panel moved off the Dashboard to Government data. The Configuration menu shows a count beside Government data when something is overdue.</td></tr>
+  <tr><td>1.8.0</td><td>27 Oct 2026</td><td>Applies to app 1.8.0. Ownership forms are their own Review inbox item. New customer page with status tiles, a Next step banner and tabs.</td></tr>
+  <tr><td>1.7.2</td><td>27 Oct 2026</td><td>Applies to app 1.7.2. The Trade Compliance page and its tab strip are gone. Orders, Classifications, Customers, Customs records and Rules are separate pages.</td></tr>
   <tr><td>1.7.1</td><td>27 Oct 2026</td><td>Applies to app 1.7.1. The screening list and the RMAP smelter list are loaded on Configuration &gt; Government data. Smelter check is renamed CMRT check.</td></tr>
   <tr><td>1.7.0</td><td>27 Oct 2026</td><td>Applies to app 1.7.0. New supplier page (click a supplier's name) with status tiles, a Next step banner and tabs. The order file starts with a progress strip and a Next step banner.</td></tr>
   <tr><td>1.6.0</td><td>27 Oct 2026</td><td>Applies to app 1.6.0. New menu: Dashboard, Orders, Review inbox, Records and Configuration. Bell shows blocked orders, overdue items and escalations for everyone; the person icon holds your name, role and Sign out. Dashboard has an All filter.</td></tr>
@@ -563,7 +567,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.7.1</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.8.1</p>
 </main>
 </div>
 </body>
