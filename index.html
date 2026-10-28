@@ -19,7 +19,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#printArea{display:none}
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}dialog::backdrop{background:rgba(15,23,42,.5)}#dlgBody h3{padding-right:2rem}#printArea{display:none}
 main div:has(>table){overflow-x:auto}
 @media(min-width:1024px){
  #topbar{position:sticky;top:0;z-index:20}
@@ -43,6 +43,8 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.11.0 Records shows just "Audit log" when trade compliance is off. Suppliers: Import and Export (CSV) and exception filters. Every page opens with a line saying what is expected.
+//        Every dialog has an X in its corner. Government data: the "Where to update each one" section is gone; Load list is a button on the table row.
 // 1.10.0 Layout: the Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches live on the supplier page (customer page for customers);
 //        the CMRT check is a Dashboard tile; Screen all parties and screening status are on the Suppliers and Customers lists. Records moved to the right of Configuration.
 //        The Dashboard is a set of tiles that fits the screen on a desktop; each tile scrolls.
@@ -81,7 +83,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.11.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -147,22 +149,24 @@ const btn = (label, a, data = {}, tone = 'primary') => { const ic = iconFor(labe
 // ---- dialogs -----------------------------------------------------------------
 function modal(html, wide, fit) {
   const b = $('#dlgBody'), d = $('#dlg');
-  b.innerHTML = html; d.style.width = wide ? 'min(94vw,76rem)' : '';
+  b.innerHTML = '<button type="button" data-a="modalX" aria-label="Close" title="Close" class="absolute top-2.5 right-2.5 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full text-xl leading-none text-slate-500 hover:bg-slate-100 hover:text-slate-900">&times;</button>' + html; d.style.width = wide ? 'min(94vw,76rem)' : '';
   // fit: lay the pop-up out as header / scrolling middle / footer so the buttons are always on screen
-  b.className = fit ? 'p-4 sm:p-6 flex flex-col' : 'p-6';
+  b.className = fit ? 'p-4 sm:p-6 flex flex-col relative' : 'p-6 relative';
   b.style.maxHeight = fit ? 'calc(100dvh - 1rem)' : '';
   d.style.maxHeight = 'calc(100dvh - 1rem)'; d.style.overflow = fit ? 'hidden' : 'auto';
   if (!d.open) d.showModal();
 }
 const closeModal = () => $('#dlg').close();
+$('#dlg').addEventListener('close', () => { if (askNote.open && !$('#dlg').open) askNote.cancel(); });   // Esc or the X while a note is being asked
 function askNote(title, required) {
   return new Promise((resolve) => {
+    askNote.open = true;
     modal(`<h3 class="text-lg font-semibold">${esc(title)}</h3>
       <textarea id="note" rows="4" class="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm" placeholder="${required ? 'A reason is required' : 'Optional note'}"></textarea>
       <p id="noteErr" class="text-xs text-red-600 mt-1 h-4"></p>
       <div class="mt-3 flex justify-end gap-2">${btn('Cancel','mCancel',{},'ghost')}${btn('Confirm','mOk')}</div>`);
-    askNote.ok = () => { const v = $('#note').value.trim(); if (required && !v) { $('#noteErr').textContent = 'Please write a reason.'; return; } closeModal(); resolve(v); };
-    askNote.cancel = () => { closeModal(); resolve(null); };
+    askNote.ok = () => { const v = $('#note').value.trim(); if (required && !v) { $('#noteErr').textContent = 'Please write a reason.'; return; } askNote.open = false; closeModal(); resolve(v); };
+    askNote.cancel = () => { askNote.open = false; closeModal(); resolve(null); };
   });
 }
 
@@ -186,6 +190,7 @@ function buildNav() {
     if (n.views) return { ...n, views: n.views.filter(viewAllowed) };
     if (!n.items) return n;
     const items = n.items.filter(([v]) => v === '--' || viewAllowed(v)).filter((it, i, arr) => it[0] !== '--' || (i > 0 && i < arr.length - 1 && arr[i + 1][0] !== '--'));
+    if (items.length === 1) { const [v, label, icon, t] = items[0]; return { id: 'flat_' + v, label, icon, v, t }; }
     return { ...n, items };
   });
 }
@@ -340,6 +345,7 @@ async function renderToday() {
   const cmrtTile = tile('CMRT check', badge(String(pend.length + flagBy.size), pend.length + flagBy.size ? 'amber' : 'green'), cmrtRows ? `<div class="divide-y divide-slate-100">${cmrtRows}</div>` : emptyMsg('Every CMRT has been read and no smelters are flagged.'));
   shell(`
     <div class="flex flex-col gap-3 xl:h-[calc(100dvh-var(--tb,5rem)-3rem)]">
+      <p class="text-sm text-slate-500 shrink-0 -mb-1">Everything that needs a person, most urgent first. Expected: nothing High. Click a count or an area to narrow the list, and a button on a row to go straight to it.</p>
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">${allCard}${card('high', 'text-red-600')}${card('medium', 'text-amber-600')}${card('low', 'text-slate-600')}</div>
       <div class="grid gap-3 xl:grid-cols-3 xl:flex-1 xl:min-h-0">${todo}<div class="grid gap-3 xl:grid-rows-2 min-h-0">${areaTile}${cmrtTile}</div></div>
     </div>`);
@@ -353,7 +359,7 @@ function currencyPanel(rows, forceOpen) {
   const bad = rows.filter((r) => r.status !== 'current').length;
   const row = (r) => {
     const [txt, tone] = !r.last_at ? ['Not recorded', 'gray'] : CUR_TONE[r.status];
-    const act = r.is_auto ? btn('Load list', 'loadListGo', {}, r.status === 'current' ? 'ghost' : 'primary') : btn('I checked this', 'dataCheck', { code: r.code }, r.status === 'current' ? 'ghost' : 'primary');
+    const act = r.is_auto ? `<label class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium cursor-pointer ${r.status === 'current' ? 'border border-slate-300 hover:bg-slate-100 text-slate-700' : 'bg-slate-900 text-white hover:bg-slate-700'}">${ico('upload')}${r.last_at ? 'Load newer list' : 'Load list'}<input id="${r.code === 'csl' ? 'cslFile' : 'rmapFile'}" type="file" accept="${r.code === 'csl' ? '.csv' : '.xlsx,.xls,.csv'}" class="hidden"></label>` : btn('I checked this', 'dataCheck', { code: r.code }, r.status === 'current' ? 'ghost' : 'primary');
     return `<tr class="align-top"><td class="py-2 pr-3"><div class="font-medium">${esc(r.label)}</div><div class="text-xs text-slate-500">${r.is_auto ? 'Loaded from a file' : 'Checked by a person'} · every ${r.cadence_days} days</div></td>
       <td class="py-2 pr-3 whitespace-nowrap">${r.last_at ? fmt(r.last_at) : '-'}</td><td class="py-2 pr-3 whitespace-nowrap">${r.due_on ? fmt(r.due_on) : '-'}</td><td class="py-2 pr-3">${badge(txt, tone)}</td><td class="py-2 text-right">${act}</td></tr>`;
   };
@@ -383,26 +389,12 @@ async function dataCheckSave({ code }) {
 
 async function renderGovData() {
   loading();
-  const [cu, rm, cs] = await Promise.all([sb.from('v_data_currency').select('*').order('sort_order'),
-    sb.from('reference_list_loads').select('loaded_at,row_count').eq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1),
-    sb.from('reference_list_loads').select('loaded_at,row_count').neq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1)]);
+  const cu = await sb.from('v_data_currency').select('*').order('sort_order');
   const rows = cu.error ? null : curSort(cu.data);
-  const lastOf = (r) => (r.data && r.data[0]) || null;
-  const loadedTxt = (l) => l ? ` Last loaded ${fmt(l.loaded_at)} · ${(l.row_count || 0).toLocaleString()} entries.` : ' Not loaded yet.';
-  const picker = (id, l) => `<label class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${ico('upload')}${l ? 'Load newer list' : 'Load list'}<input id="${id}" type="file" accept="${id === 'cslFile' ? '.csv' : '.xlsx,.xls,.csv'}" class="hidden"></label>`;
-  const where = (title, text, button) => `<div class="rounded-xl bg-white border border-slate-200 p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="font-medium">${title}</div><div class="text-sm text-slate-500">${text}</div></div>${button}</div>`;
   shell(`<h2 class="text-xl font-semibold mb-1">Government data</h2>
-    <p class="text-sm text-slate-500 mb-4">The outside lists and rules this app depends on. Load the files here, and record each time you review the ones that have no file. The Dashboard reminds you when something is due.</p>
-    ${currencyPanel(rows, true)}
-    <h3 id="listLoaders" class="font-medium mt-6 mb-2">Where to update each one</h3>
-    <div class="grid gap-3 xl:grid-cols-2">
-      ${where('Smelter list (RMAP)', 'Download the latest smelter reference list from the Responsible Minerals Initiative and load the file here.' + loadedTxt(lastOf(rm)), picker('rmapFile', lastOf(rm)))}
-      ${!FEAT.screening ? '' : where('Restricted party screening list', 'Download the Consolidated Screening List CSV from trade.gov and load the file here. Loading it screens every active party.' + loadedTxt(lastOf(cs)), picker('cslFile', lastOf(cs)))}
-      ${!FEAT.trade ? '' : where('Destination country rules', 'Your embargoed, restricted and watch countries. Review with counsel.', btn('Open rules', 'goTrade', { t: 'dest' }))}
-      ${!FEAT.trade ? '' : where('End user statement wording', 'The text customers sign. Counsel should approve any change.', btn('Open rules', 'goTrade', { t: 'dest' }))}
-      ${!FEAT.trade ? '' : where('Shipment check levels', 'Which order checks hold a shipment, warn, or are only tracked.', btn('Open rules', 'goTrade', { t: 'dest' }))}
-    </div>`);
-  $('#rmapFile').onchange = (e) => { importRmap(e.target.files[0]); e.target.value = ''; };
+    <p class="text-sm text-slate-500 mb-4">The outside lists and rules this app depends on, and when each was last updated. Expected: every row is <b>Current</b>. Use <b>Load list</b> to load a downloaded file (the smelter list and the screening list), or <b>I checked this</b> to record a review of a rule or notice that has no file. The Dashboard reminds you when something is due.</p>
+    ${rows === null ? '<div class="rounded-xl border border-dashed border-slate-300 p-3 text-sm text-slate-500">Data currency is not set up yet. Run database part 11 to see when screening lists, tariff data and reviews are due, and to load lists from here.</div>' : currencyPanel(rows, true)}`);
+  if ($('#rmapFile')) $('#rmapFile').onchange = (e) => { importRmap(e.target.files[0]); e.target.value = ''; };
   if ($('#cslFile')) $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
 }
 
@@ -426,6 +418,70 @@ async function renderFeatures() {
     <div class="grid gap-3 max-w-4xl"><div class="rounded-xl bg-white border border-slate-200 p-4"><div class="flex items-center gap-2"><span class="font-medium">Conflict minerals (suppliers, requests, CMRT, smelters)</span>${badge('Always on', 'green')}</div></div>${FEATURES.map(row).join('')}</div>`);
 }
 
+let supF = { q: '', ex: '' };   // Suppliers list: search text and the one exception filter that is on ('' = all)
+function applySupFilter() {
+  const q = supF.q.trim().toLowerCase(); let n = 0, total = 0;
+  document.querySelectorAll('#supBody tr').forEach((tr) => { total++; const ok = (!supF.ex || (tr.dataset.ex || '').split(' ').includes(supF.ex)) && (!q || (tr.dataset.q || '').includes(q)); tr.style.display = ok ? '' : 'none'; if (ok) n++; });
+  document.querySelectorAll('.supChip').forEach((b) => { const on = b.dataset.k === supF.ex; b.setAttribute('aria-pressed', on); b.classList.toggle('border-slate-900', on); b.classList.toggle('ring-2', on); b.classList.toggle('ring-slate-900', on); b.classList.toggle('bg-slate-50', on); b.classList.toggle('border-slate-200', !on); b.classList.toggle('bg-white', !on); });
+  const c = document.getElementById('supCount'); if (c) c.textContent = `${n} of ${total} supplier${total === 1 ? '' : 's'}`;
+}
+// ---- supplier export / import (CSV) --------------------------------------------------------------
+const SUP_COLS = ['name', 'country', 'address', 'city', 'postal_code', 'website', 'notes', 'active', 'contact_name', 'contact_email'];
+const csvQ = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+function downloadCsv(name, lines) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+async function exportSuppliers() {
+  toast('Preparing export…');
+  const [pa, ct] = await Promise.all([fetchAll((a, b) => sb.from('parties').select('id,name,country,address_line,city,postal_code,website,notes,is_active').contains('roles', ['supplier']).order('name').range(a, b)),
+    fetchAll((a, b) => sb.from('party_contacts').select('party_id,name,email,created_at').eq('is_active', true).order('created_at', { ascending: false }).range(a, b))]);
+  const first = new Map(); for (const c of ct) if (!first.has(c.party_id)) first.set(c.party_id, c);
+  const lines = [SUP_COLS.map(csvQ).join(',')].concat(pa.map((p) => { const c = first.get(p.id) || {}; return [p.name, p.country, p.address_line, p.city, p.postal_code, p.website, p.notes, p.is_active ? 'yes' : 'no', c.name, c.email].map(csvQ).join(','); }));
+  downloadCsv(`suppliers_${todayIso()}.csv`, lines); toast(`${pa.length} supplier${pa.length === 1 ? '' : 's'} exported`);
+}
+let supImportRows = null;
+async function previewSupplierImport(file) {
+  const box = $('#supPrev'); if (!file) { box.innerHTML = ''; return; }
+  const all = parseCsvText(await file.text()), head = (all[0] || []).map((h) => String(h).toLowerCase().replace(/[^a-z]/g, '')), ix = (...k) => head.findIndex((h) => k.includes(h));
+  const iN = ix('name', 'supplier', 'suppliername', 'company', 'vendor'), iC = ix('country', 'countrycode'), iA = ix('address', 'addressline', 'street'), iCi = ix('city'), iP = ix('postalcode', 'postcode', 'zip'), iW = ix('website', 'url'), iNo = ix('notes'), iCn = ix('contactname', 'contact'), iCe = ix('contactemail', 'email');
+  if (iN < 0) { supImportRows = null; box.innerHTML = '<p class="text-sm text-red-700 mt-3">The file needs a "name" column. Optional: ' + SUP_COLS.slice(1).join(', ') + '.</p>'; return; }
+  const ex = await fetchAll((a, b) => sb.from('parties').select('id,name,roles').range(a, b)), byName = new Map(ex.map((p) => [p.name.trim().toLowerCase(), p]));
+  const g = (r, i) => (i >= 0 ? String(r[i] ?? '').trim() : ''), rows = [], skipped = [], seen = new Set();
+  for (const r of all.slice(1)) {
+    const name = g(r, iN); if (!name) continue;
+    const key = name.toLowerCase(), c = g(r, iC).toUpperCase(), email = g(r, iCe);
+    if (seen.has(key)) { skipped.push(`${name}: listed twice in the file`); continue; } seen.add(key);
+    if (c && !/^[A-Z]{2}$/.test(c)) { skipped.push(`${name}: country must be a 2-letter code`); continue; }
+    if (email && !/^[^@\s]+@[^@\s]+$/.test(email)) { skipped.push(`${name}: contact email is not valid`); continue; }
+    const hit = byName.get(key); if (hit && !(hit.roles || []).includes('supplier')) { skipped.push(`${name}: already exists as a customer or other party; add the supplier role on that record`); continue; }
+    rows.push({ name, existing: hit ? hit.id : null, country: c, address: g(r, iA), city: g(r, iCi), postal: g(r, iP), website: g(r, iW), notes: g(r, iNo), contact: g(r, iCn), email });
+  }
+  supImportRows = rows;
+  const nNew = rows.filter((x) => !x.existing).length, nUp = rows.length - nNew;
+  box.innerHTML = `<div class="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>${nNew}</b> new supplier${nNew === 1 ? '' : 's'} will be added and <b>${nUp}</b> existing one${nUp === 1 ? '' : 's'} updated (only the fields filled in the file).${skipped.length ? `<div class="mt-2 text-amber-700">${skipped.length} row${skipped.length === 1 ? '' : 's'} skipped:<ul class="list-disc ml-5 max-h-32 overflow-auto">${skipped.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}</div>
+    <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${rows.length ? btn(`Import ${rows.length}`, 'supImportGo') : ''}</div>`;
+}
+async function runSupplierImport() {
+  const rows = supImportRows || []; if (!rows.length) return;
+  const box = $('#supPrev'); let added = 0, updated = 0, contacts = 0; const errs = [];
+  for (const [i, r] of rows.entries()) {
+    box.innerHTML = `<p class="mt-3 text-sm text-slate-600">Importing ${i + 1} of ${rows.length}…</p>`;
+    let id = r.existing;
+    if (id) {
+      const upd = {}; if (r.country) upd.country = r.country; if (r.address) upd.address_line = r.address; if (r.city) upd.city = r.city; if (r.postal) upd.postal_code = r.postal; if (r.website) upd.website = r.website; if (r.notes) upd.notes = r.notes;
+      if (Object.keys(upd).length) { const u = await sb.from('parties').update(upd).eq('id', id); if (u.error) { errs.push(`${r.name}: ${u.error.message}`); continue; } }
+      updated++;
+    } else {
+      const ins = await sb.from('parties').insert({ name: r.name, country: r.country || null, address_line: r.address || null, city: r.city || null, postal_code: r.postal || null, website: r.website || null, notes: r.notes || null, roles: ['supplier'] }).select('id').single();
+      if (ins.error) { errs.push(`${r.name}: ${ins.error.message}`); continue; } id = ins.data.id; added++;
+    }
+    if (r.contact || r.email) {
+      const have = r.email ? await sb.from('party_contacts').select('id').eq('party_id', id).ilike('email', r.email).limit(1) : { data: [] };
+      if (!(have.data || []).length) { const c = await sb.from('party_contacts').insert({ party_id: id, name: r.contact || r.email, email: r.email || null }); if (c.error) errs.push(`${r.name} contact: ${c.error.message}`); else contacts++; }
+    }
+  }
+  supImportRows = null;
+  modal(`<h3 class="text-lg font-semibold">Import finished</h3><p class="text-sm mt-2">${added} added, ${updated} updated, ${contacts} contact${contacts === 1 ? '' : 's'} added.</p>${errs.length ? `<p class="text-sm text-red-700 mt-2">Not saved:</p><ul class="list-disc ml-5 text-sm text-red-700 max-h-40 overflow-auto">${errs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}<div class="mt-4 text-right">${btn('Close', 'close')}</div>`);
+  route();
+}
 async function renderSuppliers() {
   loading();
   const [sr, cr, ir, pr] = await Promise.all([sb.from('v_supplier_status').select('*').order('name'), sb.from('party_contacts').select('party_id,name,email').eq('is_active', true).order('created_at', { ascending: false }), sb.from('parties').select('id,name,country,notes').contains('roles', ['supplier']).eq('is_active', false).order('name'), FEAT.screening ? sb.from('v_party_status').select('party_id,open_hits,confirmed_hits,last_screened_at') : Promise.resolve({ data: [] })]);
@@ -433,13 +489,25 @@ async function renderSuppliers() {
   const inactive = ir.data || [];
   const scr = new Map(((pr && pr.data) || []).map((x) => [x.party_id, x])), scrBadge = (id) => { const x = scr.get(id); return !x ? badge('Not screened', 'gray') : x.confirmed_hits > 0 ? badge('Confirmed match', 'red') : x.open_hits > 0 ? badge(x.open_hits + ' to review', 'amber') : x.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray'); };
   const confirmed = data.filter((s) => (scr.get(s.party_id) || {}).confirmed_hits > 0).length;
+  // exception flags per supplier, used by the filter chips (a supplier can be in several)
+  const exOf = (s) => { const x = scr.get(s.party_id) || {}, e = [];
+    if (!s.cmrt_status || s.cmrt_expired || s.cmrt_status === 'received' || s.cmrt_status === 'accepted_with_gaps') e.push('cm');
+    if (s.flagged_smelters > 0) e.push('sm');
+    if (FEAT.screening && (x.confirmed_hits > 0 || x.open_hits > 0 || !x.last_screened_at)) e.push('sc');
+    if (s.open_requests > 0) e.push('rq');
+    return e; };
+  const exCount = { cm: 0, sm: 0, sc: 0, rq: 0 }; for (const s of data) for (const k of exOf(s)) exCount[k]++;
+  const EXN = [['', 'All', data.length], ['cm', 'Conflict minerals form', exCount.cm], ['sm', 'Smelter flags', exCount.sm], ...(FEAT.screening ? [['sc', 'Screening', exCount.sc]] : []), ['rq', 'Open requests', exCount.rq]];
+  const supFilterBar = `<div class="flex flex-wrap items-center gap-2 mb-3"><input id="supQ" value="${esc(supF.q)}" placeholder="Search suppliers" class="rounded-lg border border-slate-300 p-2 text-sm w-56">${EXN.map(([k, l, c]) => `<button type="button" data-a="supEx" data-k="${k}" aria-pressed="${supF.ex === k}" class="supChip inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${supF.ex === k ? 'border-slate-900 ring-2 ring-slate-900 bg-slate-50' : 'border-slate-200 bg-white hover:border-slate-400'}">${l}<span class="rounded-full ${k && c ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'} px-2 text-xs font-semibold">${c}</span></button>`).join('')}<span id="supCount" class="ml-auto text-xs text-slate-500"></span></div>`;
   const contactOf = new Map(); for (const c of cr.data) if (!contactOf.has(c.party_id)) contactOf.set(c.party_id, c);
   const cmrt = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
-  shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2><div class="flex gap-2">${FEAT.screening ? btn('Screen all parties', 'screenAllBtn', {}, 'ghost') : ''}${btn('+ Add supplier', 'addSupplier')}</div></div>
+  shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2><div class="flex flex-wrap gap-2">${FEAT.screening ? btn('Screen all parties', 'screenAllBtn', {}, 'ghost') : ''}${btn('+ Add supplier', 'addSupplier')}${btn('Import', 'supImport', {}, 'ghost')}${btn('Export', 'supExport', {}, 'ghost')}</div></div>
+  <p class="text-sm text-slate-500 mb-4">Everyone we buy from. Expected for each supplier: a contact, a current conflict minerals form (CMRT) with no flagged smelters, no overdue requests${FEAT.screening ? ' and a clear restricted party screening' : ''}. Use the filters to see only the exceptions.</p>
+  ${supFilterBar}
   ${confirmed ? `<div class="mb-4 rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700"><b>${confirmed} supplier${confirmed > 1 ? 's have' : ' has'} a confirmed match.</b> Confirmed matches need escalation outside this tool (counsel, and no shipments or payments until decided).</div>` : ''}
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
     <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Contact</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th>${FEAT.screening ? '<th class="p-3">Screening</th>' : ''}<th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
-    <tbody class="divide-y divide-slate-100">${data.map((s) => `<tr>
+    <tbody id="supBody" class="divide-y divide-slate-100">${data.map((s) => `<tr data-ex="${exOf(s).join(' ')}" data-q="${esc((s.name + ' ' + (s.country || '')).toLowerCase())}">
       <td class="p-3 font-medium"><button data-a="openSupplier" data-id="${esc(s.party_id)}" class="text-left font-medium hover:underline">${esc(s.name)}</button><div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
       <td class="p-3">${contactOf.has(s.party_id) ? `${esc(contactOf.get(s.party_id).name)}<div class="text-xs text-slate-400">${esc(contactOf.get(s.party_id).email || '')}</div>` : '<span class="text-slate-400">None yet</span>'}</td>
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
@@ -449,6 +517,8 @@ async function renderSuppliers() {
     </tbody></table></div>
   ${inactive.length ? `<details class="mt-4 rounded-xl bg-white border border-slate-200 p-3"><summary class="text-sm font-medium cursor-pointer">Inactive suppliers (${inactive.length})</summary>
     <table class="w-full text-sm mt-2"><tbody class="divide-y divide-slate-100">${inactive.map((i) => `<tr class="text-slate-500"><td class="p-2 font-medium">${esc(i.name)}<div class="text-xs text-slate-400">${esc(i.country || '')}${i.notes ? ' · ' + esc(String(i.notes).split('\n').pop()) : ''}</div></td><td class="p-2 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: i.id }, 'ghost')} ${btn('Reactivate', 'supplierActive', { id: i.id, on: '1' }, 'ghost')}</td></tr>`).join('')}</tbody></table></details>` : ''}`);
+  $('#supQ').oninput = (e) => { supF.q = e.target.value; applySupFilter(); };
+  applySupFilter();
 }
 
 
@@ -548,7 +618,8 @@ async function renderSupplier() {
   shell(`<div class="text-xs text-slate-500 mb-2">Configuration › ${btn('Suppliers', 'nav', { v: 'suppliers' }, 'ghost').replace('px-3 py-1.5', 'px-2 py-0.5')}</div>
     <div class="flex flex-wrap items-center gap-3"><h1 class="text-2xl font-semibold">${esc(name)}</h1>${next.tone === 'green' ? badge('In good standing', 'green') : badge('Action needed', next.tone === 'red' ? 'red' : 'amber')}${c.party.is_active === false ? badge('Inactive', 'gray') : ''}<span class="text-sm text-slate-500">${esc(c.party.country || '')} · ${c.skus.filter((k) => k.status === 'active').length} active products</span>
       <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editSupplier', { id }, 'ghost')}${btn('Manage contact', 'addContact', { id, name }, 'ghost')}${btn('Request documents', 'reqDocs', { id, name })}</div></div>
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${FEAT.screening ? scrTile : ''}${reqTile}</div>
+    <p class="mt-3 text-sm text-slate-500">Everything about this supplier. Expected: a contact on file, a current conflict minerals form with no flagged smelters, no overdue requests${FEAT.screening ? ' and a clear restricted party screening' : ''}. The Next step box shows what to do first.</p>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${FEAT.screening ? scrTile : ''}${reqTile}</div>
     ${banner}
     <div class="mt-5 mb-4 flex flex-wrap gap-1 border-b border-slate-200">${tabs}</div>${body}`);
 }
@@ -626,7 +697,8 @@ async function renderCustomer() {
   shell(`<div class="text-xs text-slate-500 mb-2">Configuration › ${btn('Customers', 'nav', { v: 'trade', t: 'parties' }, 'ghost').replace('px-3 py-1.5', 'px-2 py-0.5')}</div>
     <div class="flex flex-wrap items-center gap-3"><h1 class="text-2xl font-semibold">${esc(name)}</h1>${next.tone === 'green' ? badge('In good standing', 'green') : badge('Action needed', next.tone === 'red' ? 'red' : 'amber')}${c.party.is_active === false ? badge('Inactive', 'gray') : ''}<span class="text-sm text-slate-500">${esc((c.party.roles || []).map((r) => (PARTY_ROLES.find((x) => x[0] === r) || [0, r])[1]).join(', '))}${c.party.country ? ' · ' + esc(c.party.country) : ''}</span>
       <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editParty', { id }, 'ghost')}${isCust ? btn('Manage contact', 'addContact', { id, name }, 'ghost') + btn('End user statement', 'eus', { id, name }) : btn('Manage contact', 'addContact', { id, name }, 'ghost')}</div></div>
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${euTile}${scrTile}${ordTile}${lastTile}</div>
+    <p class="mt-3 text-sm text-slate-500">Everything about this customer or other party. Expected: a clear restricted party screening, and for a customer a current signed end user statement, before its orders can ship. The Next step box shows what to do first.</p>
+    <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${euTile}${scrTile}${ordTile}${lastTile}</div>
     ${banner}
     <div class="mt-5 mb-4 flex flex-wrap gap-1 border-b border-slate-200">${tabs}</div>${body}`);
 }
@@ -687,7 +759,7 @@ async function renderSkus() {
   loading();
   const { data, error } = await sb.from('v_sku_trace').select('*').order('sku');
   if (error) return fail(error);
-  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">SKUs</h2><span class="text-sm text-slate-500">${data.length} total</span>
+  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Products</h2><span class="text-sm text-slate-500">${data.length} total</span><p class="basis-full text-sm text-slate-500 -mt-1">The SKUs we sell, each linked to the supplier that makes it. Expected: every active SKU has a supplier, so its conflict minerals form and its classification can be tracked.</p>
     <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64 xl:w-96">
     <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add SKU', 'addSku')}</div>
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
@@ -1102,6 +1174,12 @@ async function hitReviewModal(id) {
 // ---- trade compliance (EAR / ITAR / imports) -----------------------------------------
 let tradeTab = 'class', tradeF = { q: '', st: '' };
 const TRADE_TITLE = { class: 'Classifications', orders: 'Orders', parties: 'Customers & ship-to', records: 'Customs records', dest: 'Rules' };
+// One line under each trade page title saying what is expected there (Customers and Customs records carry their own text).
+const TRADE_INTRO = {
+  orders: 'Customer orders and their shipment checklist. Expected: every order is screened and its checklist is complete before it ships. Open an order to see what is holding it and the next step.',
+  class: 'The export-control and customs classification of each product. Expected: every active product has an approved classification before an order for it is cleared. Approved classifications are replaced by a new version, never edited.',
+  dest: 'The settings that decide when an order is held or warned: shipment-check levels, end user statement settings and the destination countries. Expected: reviewed with counsel at least once a year. Only an admin can change them.'
+};
 const TARIFFS = ['Section 301', 'Section 232', 'Reciprocal / IEEPA tariffs', 'Antidumping / countervailing duty', 'Free-trade preference claimed', 'Other'];
 const CUSTOMS_TYPES = ['purchase_order', 'contract', 'coo_certificate', 'certificate_of_conformance', 'taa_baa_certificate', 'end_user_statement', 'commercial_invoice', 'packing_list', 'transport_doc', 'entry_summary', 'export_filing', 'broker_file', 'export_license'];
 const ORDER_TONE = { pending: 'gray', cleared: 'green', hold: 'red', blocked: 'red' };
@@ -1116,7 +1194,7 @@ async function renderTrade() {
   loading();
   try {
     const out = await ({ class: tradeClass, orders: tradeOrders, parties: tradeParties, records: tradeRecords, dest: tradeDest })[tradeTab]();
-    shell(`<h1 class="text-xl font-semibold mb-4">${TRADE_TITLE[tradeTab]}</h1>${out.html}`);
+    shell(`<h1 class="text-xl font-semibold ${TRADE_INTRO[tradeTab] ? 'mb-1' : 'mb-4'}">${TRADE_TITLE[tradeTab]}</h1>${TRADE_INTRO[tradeTab] ? `<p class="text-sm text-slate-500 mb-4">${TRADE_INTRO[tradeTab]}</p>` : ''}${out.html}`);
     out.bind && out.bind();
   } catch (e) { fail(e); }
 }
@@ -1705,7 +1783,7 @@ async function verifyChain() {
 }
 async function renderAudit() {
   const inp = 'mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm';
-  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Audit trail</h2><div id="chainBox" class="ml-auto text-sm"></div></div>
+  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Audit trail</h2><div id="chainBox" class="ml-auto text-sm"></div><p class="basis-full text-sm text-slate-500 -mt-1">The permanent record of who changed what, and when. Expected: the chain check below says it is intact. Entries cannot be edited or deleted, and each one is chained to the one before so any tampering shows.</p></div>
   <div class="rounded-xl bg-white border border-slate-200 p-4 mb-4"><div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5 items-end">
     <label class="text-sm">From<input id="aFrom" type="date" class="${inp}"></label><label class="text-sm">To<input id="aTo" type="date" class="${inp}"></label>
     <label class="text-sm">Area<select id="aArea" class="${inp}"><option value="">All areas</option>${Object.entries(AUD_AREA).sort((a, b) => a[1].localeCompare(b[1])).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
@@ -2041,6 +2119,17 @@ const actions = {
   },
   openSupplier: ({ id }) => { supId = id; supTab = 'overview'; view = 'supplier'; route(); },
   supTab: ({ v }) => { supTab = v; renderSupplier(); },
+  supEx: ({ k }) => { supF.ex = supF.ex === k ? '' : k; applySupFilter(); },
+  supExport: () => exportSuppliers().catch((e) => toast(e.message || 'Export failed')),
+  supImport: () => {
+    supImportRows = null;
+    modal(`<h3 class="text-lg font-semibold">Import suppliers</h3>
+      <p class="text-sm text-slate-600 mt-2">Choose a CSV file with one supplier per row. Required column: <b>name</b>. Optional: <b>${SUP_COLS.slice(1).join(', ')}</b>. A supplier whose name already exists is updated (only the fields you filled in); a new name is added. Contacts are added only when the email is new for that supplier. <b>Export</b> gives you a file in this format to edit and bring back.</p>
+      <label class="block mt-3 text-sm">CSV file<input id="supFile" type="file" accept=".csv" class="${inp}"></label>
+      <div id="supPrev"></div>`);
+    $('#supFile').onchange = (e) => previewSupplierImport(e.target.files[0]);
+  },
+  supImportGo: () => runSupplierImport(),
   dashAll: () => { dashFilter = null; dashArea = null; renderToday(); },
   dashArea: ({ k }) => { dashArea = dashArea === k ? null : k; renderToday(); },
   bell: () => { popMenu('bell', '#bellBtn', bellHtml(), 380); refreshBell(true); },
@@ -2086,6 +2175,7 @@ const actions = {
   },
   signout: async () => { await sb.auth.signOut(); },
   mOk: () => askNote.ok(), mCancel: () => askNote.cancel(),
+  modalX: () => { if (askNote.open) askNote.cancel(); else closeModal(); },
   close: () => closeModal(),
   file: async ({ path }) => {
     const { data, error } = await sb.storage.from('compliance-docs').createSignedUrl(path, 300);
