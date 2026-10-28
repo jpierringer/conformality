@@ -43,6 +43,7 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.7.2  The old Trade Compliance page is gone: Orders, Classifications, Customers, Customs records and Rules are separate pages with their own titles (no tab strip).
 // 1.7.1  Loading the screening list and the RMAP smelter list now happens on Configuration > Government data (the review pages show status only).
 //         Smelter check is renamed CMRT check.
 // 1.7.0  Supplier page (click a supplier's name): status tiles, a Next step banner and tabs for Documents & requests, Smelters, Products, Contacts and History.
@@ -67,7 +68,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.7.2';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -894,7 +895,7 @@ async function hitReviewModal(id) {
 
 // ---- trade compliance (EAR / ITAR / imports) -----------------------------------------
 let tradeTab = 'class', tradeF = { q: '', st: '' };
-const TRADE_TABS = [['class', 'Classification'], ['orders', 'Orders'], ['parties', 'Customers & ship-to'], ['records', 'Customs records'], ['dest', 'Rules']];
+const TRADE_TITLE = { class: 'Classifications', orders: 'Orders', parties: 'Customers & ship-to', records: 'Customs records', dest: 'Rules' };
 const TARIFFS = ['Section 301', 'Section 232', 'Reciprocal / IEEPA tariffs', 'Antidumping / countervailing duty', 'Free-trade preference claimed', 'Other'];
 const CUSTOMS_TYPES = ['purchase_order', 'contract', 'coo_certificate', 'certificate_of_conformance', 'taa_baa_certificate', 'end_user_statement', 'commercial_invoice', 'packing_list', 'transport_doc', 'entry_summary', 'export_filing', 'broker_file', 'export_license'];
 const ORDER_TONE = { pending: 'gray', cleared: 'green', hold: 'red', blocked: 'red' };
@@ -906,11 +907,9 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 async function renderTrade() {
   loading();
-  const TRADE_ICON = { class: 'tag', orders: 'package', parties: 'users', records: 'filetext', dest: 'sliders' };
-  const seg = TRADE_TABS.map(([k, l]) => `<button data-a="tradeTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${tradeTab === k ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(TRADE_ICON[k])}${l}</button>`).join('');
   try {
     const out = await ({ class: tradeClass, orders: tradeOrders, parties: tradeParties, records: tradeRecords, dest: tradeDest })[tradeTab]();
-    shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Trade Compliance</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${seg}</div></div>${out.html}`);
+    shell(`<h1 class="text-xl font-semibold mb-4">${TRADE_TITLE[tradeTab]}</h1>${out.html}`);
     out.bind && out.bind();
   } catch (e) { fail(e); }
 }
