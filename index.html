@@ -45,6 +45,7 @@ main div:has(>table){overflow-x:auto}
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
 // 1.11.0 Records shows just "Audit log" when trade compliance is off. Suppliers: Import and Export (CSV) and exception filters. Every page opens with a line saying what is expected.
 //        Every dialog has an X in its corner. Government data: the "Where to update each one" section is gone; Load list is a button on the table row.
+// 1.11.3 Features page: the Trade compliance "When off, hidden" text now lists Products (SKUs).
 // 1.11.2 Products (SKUs) is a Trade compliance page (menu, supplier tab and counts hide when it is off); wording is "Product (SKU)" everywhere.
 // 1.11.1 Suppliers: no Open button (the name opens it), Manage contact is merged into Edit, active SKU count only shows when Trade compliance is on.
 // 1.10.0 Layout: the Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches live on the supplier page (customer page for customers);
@@ -85,7 +86,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.11.2';
+const APP_VERSION = '1.11.3';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -402,7 +403,7 @@ async function renderGovData() {
 
 // ---- features (feature flags) --------------------------------------------------------------
 const FEATURES = [
-  { key: 'feature_trade_compliance', id: 'trade', name: 'Trade compliance (EAR / ITAR)', hides: 'Orders, Classifications, Customers and their end user statements, Rules (destination countries and check levels), Customs records, and the tariff and export-control rows under Government data.', keeps: 'Suppliers, document requests, CMRT checks and the smelter list (conflict minerals), and the Audit log.' },
+  { key: 'feature_trade_compliance', id: 'trade', name: 'Trade compliance (EAR / ITAR)', hides: 'Orders, Products (SKUs) (including the Products tab and product count on supplier pages), Classifications, Customers and their end user statements, Rules (destination countries and check levels), Customs records, and the tariff and export-control rows under Government data.', keeps: 'Suppliers, document requests, CMRT checks and the smelter list (conflict minerals), and the Audit log.' },
   { key: 'feature_party_screening', id: 'screening', name: 'Restricted party screening and ownership reviews', hides: 'Screening matches, Ownership forms, the screening list under Government data, and the screening tile on supplier pages.', keeps: 'Everything else. This must stay on while trade compliance is on, because orders are screened.' }
 ];
 async function renderFeatures() {
