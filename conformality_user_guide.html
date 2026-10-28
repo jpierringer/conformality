@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.7.0">
+<meta name="version" content="1.7.1">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -58,7 +58,7 @@
   <a href="#suppliers">Suppliers</a>
   <a href="#skus">SKUs</a>
   <a href="#requests">Document requests</a>
-  <a href="#minerals">Smelter check</a>
+  <a href="#minerals">CMRT check</a>
   <a href="#screening">Screening matches</a>
   <a href="#trade">Trade Compliance</a>
   <a href="#review">Documents</a>
@@ -73,7 +73,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.7.0 · Updated 27 Oct 2026 · Applies to app version 1.7.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.7.1 · Updated 27 Oct 2026 · Applies to app version 1.7.1 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -107,7 +107,7 @@
   <tr><th style="width:30%">Top menu</th><th>What is in it</th></tr>
   <tr><td><b>Dashboard</b></td><td>What needs attention now, and when outside data is due for an update. Filter by All, High, Medium or Low.</td></tr>
   <tr><td><b>Orders</b></td><td>Customer orders and their shipment checklist (the Orders tab of Trade Compliance).</td></tr>
-  <tr><td><b>Review inbox</b></td><td>Everything waiting for a decision, as four items at the top: <b>Documents</b> (forms and files that suppliers and customers sent in), <b>Screening matches</b> (restricted party screening), <b>Document requests</b> (ask suppliers for their conflict minerals forms) and <b>Smelter check</b>.</td></tr>
+  <tr><td><b>Review inbox</b></td><td>Everything waiting for a decision, as four items at the top: <b>Documents</b> (forms and files that suppliers and customers sent in), <b>Screening matches</b> (restricted party screening), <b>Document requests</b> (ask suppliers for their conflict minerals forms) and <b>CMRT check</b>.</td></tr>
   <tr><td><b>Records</b> (drop-down)</td><td><b>Customs records</b> and the <b>Audit log</b> (the permanent record of who changed what).</td></tr>
   <tr><td><b>Configuration</b> (drop-down)</td><td>The set-up information the other areas depend on: <b>Suppliers</b>, <b>Products</b> (the SKU list), <b>Classifications</b>, <b>Customers</b>, <b>Government data</b> and <b>Rules</b>.</td></tr>
 </table>
@@ -176,7 +176,7 @@
 <table>
   <tr><th style="width:30%">You see</th><th>What it means</th><th style="width:22%">Button</th></tr>
   <tr><td>Screen &lt;party&gt;</td><td>That supplier or customer has never been checked against the lists, or is due for a re-check (the interval is a setting; the Screening page flags "re-screen due" after 30 days).</td><td><span class="btn">Screen now</span> runs the check immediately.</td></tr>
-  <tr><td>Screening list is out of date</td><td>The government lists were last loaded more than 14 days ago.</td><td><span class="btn">Load list</span> opens Screening.</td></tr>
+  <tr><td>Screening list is out of date</td><td>The government lists were last loaded more than 14 days ago.</td><td><span class="btn">Load list</span> opens Government data.</td></tr>
   <tr><td>Possible list match</td><td>A party's name resembles a listed party. A person must decide whether it is the same one.</td><td><span class="btn">Review matches</span></td></tr>
   <tr><td>End user statement expires soon / expired</td><td>A customer you have shipped to in the last 12 months has a statement that ends within 30 days (the warning window is a setting) or has already ended. It is shown as urgent if the customer also has an order waiting.</td><td><span class="btn">Send new link</span> opens the customer's statement.</td></tr>
   <tr><td>Data needs updating</td><td>An item in the Data currency panel is due.</td><td><span class="btn">Record check</span></td></tr>
@@ -245,7 +245,7 @@
 </ul>
 
 <!-- ============ MINERALS ============ -->
-<h2 id="minerals">Smelter check <small>(Review inbox)</small></h2>
+<h2 id="minerals">CMRT check <small>(Review inbox)</small></h2>
 <div class="purpose"><b>Purpose</b>Reads each supplier's conflict minerals form and checks every smelter on it against the official conformant list, so you only have to look at the exceptions.</div>
 <div class="example"><b class="l">Example (made-up names)</b>Brightline's form lists 40 smelters. The app reads it and finds 38 on the conformant list, one that is not listed, and one whose name it cannot match. You only look at those two: ask Brightline about the unlisted smelter, or record your decision and why. Without the app you would check all 40 by hand.</div>
 
@@ -254,7 +254,7 @@
 
 <h3>The page, top to bottom</h3>
 <ol>
-  <li><b>RMAP smelter list.</b> Shows when it was last loaded. Download the latest Smelter Reference List from RMI and click <span class="btn">Load newer list</span>. Do this a few times a year, and before the annual customer reporting cycle.</li>
+  <li><b>RMAP smelter list.</b> Shows when it was last loaded. To update it, use <b>Configuration &gt; Government data</b>: download the latest Smelter Reference List from RMI and click <span class="btn">Load newer list</span> there. Do this a few times a year, and before the annual customer reporting cycle.</li>
   <li><b>CMRTs waiting to be read.</b> Forms suppliers have uploaded but the app has not yet read. Click <span class="btn">Read &amp; check smelters</span>. The app extracts the smelter table and compares each one to the list.</li>
   <li><b>Checked declarations.</b> Defaults to <i>Needs attention</i>. Switch to <i>All</i> to see past years, filter by year or supplier, and optionally show archived items.</li>
 </ol>
@@ -298,7 +298,7 @@
 <h3>Loading a list</h3>
 <ol>
   <li>On trade.gov, download the Consolidated Screening List as CSV.</li>
-  <li>Click <span class="btn">Load screening list</span> (or <span class="btn">Load newer list</span>) and choose the file.</li>
+  <li>Go to <b>Configuration &gt; Government data</b>, click <span class="btn">Load list</span> (or <span class="btn">Load newer list</span>) next to the screening list, and choose the file.</li>
   <li>The app shows a preview of how many entries were added, changed or removed. Confirm to apply it. A load that would remove an unusually large share of entries is refused unless you explicitly force it, which guards against loading a damaged file.</li>
 </ol>
 <p>The original file and its fingerprint are saved as evidence of what the list said that day. The page warns <span class="b r">Out of date</span> after 14 days. Reload every one to two weeks.</p>
@@ -455,7 +455,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="govdata">Government data <small>(Configuration menu)</small></h2>
 <p>One page for the outside information the app depends on: the restricted party list, the smelter list, tariff codes, export control rules, your destination country list, the end user statement wording and the form version. The table shows when each was last updated, when it is next due, and whether it is current.</p>
 <ul>
-  <li><b>Lists that come from a file</b> (screening list, smelter list): click <b>Load list</b>. It takes you to the page where you pick the file.</li>
+  <li><b>Lists that come from a file</b> (screening list, smelter list): download the file, then use the <b>Load list</b> button next to that list on this page and pick it. The Review inbox pages only show when each list was last loaded.</li>
   <li><b>Things a person reviews</b> (tariff codes, export control rules, country list, statement wording, form version): click <b>I checked this</b> and write what you checked. The note and date are saved permanently.</li>
   <li>The <b>Dashboard</b> shows a reminder when something is due or overdue.</li>
 </ul>
@@ -547,6 +547,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.7.1</td><td>27 Oct 2026</td><td>Applies to app 1.7.1. The screening list and the RMAP smelter list are loaded on Configuration &gt; Government data. Smelter check is renamed CMRT check.</td></tr>
   <tr><td>1.7.0</td><td>27 Oct 2026</td><td>Applies to app 1.7.0. New supplier page (click a supplier's name) with status tiles, a Next step banner and tabs. The order file starts with a progress strip and a Next step banner.</td></tr>
   <tr><td>1.6.0</td><td>27 Oct 2026</td><td>Applies to app 1.6.0. New menu: Dashboard, Orders, Review inbox, Records and Configuration. Bell shows blocked orders, overdue items and escalations for everyone; the person icon holds your name, role and Sign out. Dashboard has an All filter.</td></tr>
   <tr><td>1.5.1</td><td>27 Oct 2026</td><td>Applies to app 1.5.1. The menu item formerly called Restricted Party Screening is now Party Screening.</td></tr>
@@ -562,7 +563,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.7.0</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.7.1</p>
 </main>
 </div>
 </body>
