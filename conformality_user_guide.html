@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.10.0">
+<meta name="version" content="1.11.0">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -56,7 +56,7 @@
   <a href="#example">Worked example</a>
   <a href="#today">Dashboard</a>
   <a href="#suppliers">Suppliers</a>
-  <a href="#skus">SKUs</a>
+  <a href="#skus">Products</a>
   <a href="#requests">Document requests</a>
   <a href="#minerals">CMRT check</a>
   <a href="#screening">Screening</a>
@@ -73,7 +73,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.10.0 · Updated 28 Oct 2026 · Applies to app version 1.10.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.11.0 · Updated 28 Oct 2026 · Applies to app version 1.11.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -108,7 +108,7 @@
   <tr><td><b>Dashboard</b></td><td>An at-a-glance screen that fits on one page on a desktop. <b>To do</b> lists everything that needs a person, most urgent first; filter by All, High, Medium or Low, or click an area in <b>By area</b> (documents, requests, screening and so on). The <b>CMRT check</b> tile lists conflict minerals forms waiting to be read and suppliers with flagged smelters. Each tile scrolls on its own.</td></tr>
   <tr><td><b>Orders</b></td><td>Customer orders and their shipment checklist. <i>Trade compliance only.</i></td></tr>
   <tr><td><b>Configuration</b> (drop-down)</td><td>An amber number beside an item means that many things there need attention (99+ means 100 or more). The set-up information the other areas depend on: <b>Suppliers</b>, <b>Government data</b>, <b>Products</b> (the SKU list) and <b>Features</b>; then, under the heading Trade compliance, <b>Classifications</b>, <b>Customers</b> and <b>Rules</b>.</td></tr>
-  <tr><td><b>Records</b> (drop-down)</td><td>The <b>Audit log</b> (the permanent record of who changed what), then, under the heading Trade compliance, <b>Customs records</b>.</td></tr>
+  <tr><td><b>Records</b> (drop-down)</td><td>The <b>Audit log</b> (the permanent record of who changed what), then, under the heading Trade compliance, <b>Customs records</b>. When Trade compliance is off, Records is a single menu item that opens the Audit log directly.</td></tr>
 </table>
 <h3>Where the old Review inbox went</h3>
 <p>There is no Review inbox any more. Each piece now lives with the party it belongs to, and the Dashboard tells you what is waiting.</p>
@@ -227,6 +227,8 @@
 <h3>Actions</h3>
 <ul>
   <li><span class="btn">+ Add supplier</span> creates a supplier.</li>
+  <li><span class="btn">Import</span> adds or updates many suppliers from a CSV file. A preview shows how many are new, how many will be updated and which rows are skipped (and why) before anything is saved. <span class="btn">Export</span> downloads all suppliers, with their first active contact, as a CSV file in the same columns, so you can edit it and import it back.</li>
+  <li><b>Filter chips</b> above the list show only exceptions: <b>Conflict minerals form</b> (missing or out of date), <b>Smelter flags</b>, <b>Screening</b> (matches or overdue) and <b>Open requests</b>. The search box narrows the list further.</li>
   <li><span class="btn">Manage contact</span> opens the supplier's single contact. If one exists the form is pre-filled for editing; if not it is blank. A supplier can only be asked for documents once it has a contact.</li>
   <li><span class="btn">Request documents</span> starts a request, explained under <a href="#requests">Requests</a>.</li>
   <li><span class="btn">Edit</span> fixes a name, country, address or notes. Inside it, <b>Deactivate</b> hides a supplier you no longer use (nothing is deleted, and it stops being re-screened), and an admin can <b>Merge into another...</b>.</li>
@@ -240,7 +242,7 @@
   <li><b>A supplier you no longer use:</b> Edit, then Deactivate. Find it again under "Inactive suppliers" at the bottom of the page, where you can Reactivate it.</li>
   <li>Merge is blocked if the wrong supplier has screening matches still waiting for a decision. Decide them on the supplier's Screening tab first. It needs database part 13.</li>
 </ul>
-<h2 id="skus">Products (SKUs) <small>(Configuration menu)</small></h2>
+<h2 id="skus">Products <small>(Configuration menu)</small></h2>
 <div class="purpose"><b>Purpose</b>Our product catalogue. A SKU (stock keeping unit) is one sellable part number. Linking each SKU to its supplier lets us answer a customer's question "is part X conflict-minerals compliant?" by looking up the supplier's current form.</div>
 <div class="example"><b class="l">Example (made-up names)</b>A customer asks: "Is part XYZ-2 conflict-minerals compliant?" You search XYZ-2, see it is made by Brightline Electronics, and open Brightline's current declaration. Without the part-to-supplier link you would be digging through old emails.</div>
 <ul>
@@ -474,7 +476,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="govdata">Government data <small>(Configuration menu)</small></h2>
 <p>One page for the outside information the app depends on: the restricted party list, the smelter list, tariff codes, export control rules, your destination country list, the end user statement wording and the form version. The table shows when each was last updated, when it is next due, and whether it is current.</p>
 <ul>
-  <li><b>Lists that come from a file</b> (screening list, smelter list): download the file, then use the <b>Load list</b> button next to that list on this page and pick it. The Dashboard and the supplier pages only show when each list was last loaded.</li>
+  <li><b>Lists that come from a file</b> (screening list, smelter list): download the file, then use the <b>Load list</b> button on that list's row in the table and pick it. This is the only place lists are loaded; the Dashboard and the supplier pages only show when each list was last loaded.</li>
   <li><b>Things a person reviews</b> (tariff codes, export control rules, country list, statement wording, form version): click <b>I checked this</b> and write what you checked. The note and date are saved permanently.</li>
   <li>The <b>Dashboard</b> shows a reminder when something is due or overdue.</li>
 </ul>
@@ -566,6 +568,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.11.0</td><td>28 Oct 2026</td><td>Applies to app 1.11.0. Suppliers can be imported and exported as CSV and filtered by exception (conflict minerals form, smelter flags, screening, open requests). Every page opens with a short line saying what is expected of it. Every dialog has an X in its corner to close it without acting. The "Where to update each one" section on Government data is gone; Load list is on the table row. With Trade compliance off, Records shows only the Audit log. Database part 14 was updated (reworded data source instructions); re-run it. The SKUs page is called Products.</td></tr>
   <tr><td>1.10.0</td><td>28 Oct 2026</td><td>Applies to app 1.10.0. The Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches are on the supplier page (a new <b>Screening</b> tab; customers get one too); the CMRT check is a Dashboard tile; Screen all parties and screening status are on the Suppliers and Customers lists. The Dashboard is a set of tiles that fits the screen on a desktop and each tile scrolls. Records moved to the right of Configuration.</td></tr>
   <tr><td>1.9.1</td><td>28 Oct 2026</td><td>Applies to app 1.9.1. The count on Review inbox &gt; Screening matches now shows only the open matches that tab lists. It previously counted every open case, including ones from other areas, so it could show a number with nothing to act on.</td></tr>
   <tr><td>1.9.0</td><td>28 Oct 2026</td><td>Applies to app 1.9.0 and database part 14. New <b>Configuration &gt; Features</b>: an admin can turn trade compliance (EAR/ITAR) and party screening off, leaving conflict minerals in place. Menus now list conflict minerals first and trade compliance after it under a "Trade compliance" heading; the Review inbox tabs and Orders moved to match.</td></tr>
@@ -593,7 +596,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.10.0</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.11.0</p>
 </main>
 </div>
 </body>
