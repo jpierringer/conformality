@@ -43,6 +43,7 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.8.3  Count pills in the Configuration drop-down for Suppliers, Classifications, Customers, Government data and Rules (overdue or needs-action items only).
 // 1.8.2  The order file pop-up fits the screen height: title, progress and Next step stay at the top, the details scroll, and the buttons stay at the bottom (phones included). Other pop-ups scroll instead of running off the screen.
 // 1.8.1  The Data currency panel is off the Dashboard (it lives on Configuration > Government data). The Configuration drop-down shows a count pill on Government data when lists or reviews are overdue.
 // 1.8.0  Ownership forms are their own Review inbox item. Customer page (click a name under Configuration > Customers): status tiles, Next step banner and tabs.
@@ -71,7 +72,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.8.2';
+const APP_VERSION = '1.8.3';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -179,8 +180,18 @@ function popMenu(key, selector, html, width) {
 }
 // ---- bell: blocked orders, overdue items and escalations (everyone's, whatever the role) ------------------
 let workCache = null;   // { at, rows, cur } from v_open_work and v_data_currency
-const overdueData = () => ((workCache && workCache.cur) || []).filter((r) => r.status === 'overdue').length;
-const menuCount = (v) => v === 'govdata' ? overdueData() : 0;
+const RULE_SOURCES = ['destinations', 'eus_wording'];   // reviews that belong to Configuration > Rules; the rest belong to Government data
+const overdueData = (rules) => ((workCache && workCache.cur) || []).filter((r) => r.status === 'overdue' && RULE_SOURCES.includes(r.code) === !!rules).length;
+// Count shown beside a Configuration item: things in that area that are overdue or need action.
+function menuCount(v, t) {
+  const rows = (workCache && workCache.rows) || [], today = todayStr();
+  if (v === 'govdata') return overdueData(false);
+  if (v === 'trade' && t === 'dest') return overdueData(true);
+  if (v === 'suppliers') return rows.filter((w) => w.kind === 'request_overdue' || w.kind === 'missing_cmrt' && w.severity === 'high').length;
+  if (v === 'trade' && t === 'parties') return rows.filter((w) => w.kind === 'eus_expiring' && w.due_on && w.due_on < today).length;
+  if (v === 'trade' && t === 'class') return rows.reduce((n, w) => n + (w.kind === 'skus_unclassified' ? (parseInt(w.title, 10) || 1) : w.kind === 'classification_pending' ? 1 : 0), 0);
+  return 0;
+}
 const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 function bellGroups(rows) {
   const t = todayStr(), g = { blocked: [], overdue: [], esc: [] };
@@ -1930,7 +1941,7 @@ const actions = {
     m.id = 'navmenu'; m.dataset.g = d.g; m.setAttribute('role', 'menu');
     m.style.cssText = `position:fixed;top:${Math.round(r.bottom + 4)}px;left:${Math.round(Math.min(r.left, window.innerWidth - 220))}px;z-index:60;min-width:12rem`;
     m.className = 'rounded-xl bg-white border border-slate-200 shadow-lg p-1';
-    m.innerHTML = g.items.map(([v, label, ic, t]) => { const n = menuCount(v); return `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}<span class="flex-1">${label}</span>${n ? `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="${n} overdue">${n}</span>` : ''}</button>`; }).join('');
+    m.innerHTML = g.items.map(([v, label, ic, t]) => { const n = menuCount(v, t); return `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}<span class="flex-1">${label}</span>${n ? `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="${n} need attention">${n}</span>` : ''}</button>`; }).join('');
     document.body.appendChild(m);
   },
   signout: async () => { await sb.auth.signOut(); },
