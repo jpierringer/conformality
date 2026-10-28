@@ -43,6 +43,9 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.10.0 Layout: the Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches live on the supplier page (customer page for customers);
+//        the CMRT check is a Dashboard tile; Screen all parties and screening status are on the Suppliers and Customers lists. Records moved to the right of Configuration.
+//        The Dashboard is a set of tiles that fits the screen on a desktop; each tile scrolls.
 // 1.9.1  Review inbox > Screening matches count now shows open screening matches (what the page lists), not every open case.
 // 1.9.0  Feature flags (Configuration > Features, database part 14): trade compliance (EAR/ITAR) and party screening can be turned off; conflict minerals is always on.
 //        Menus now list conflict minerals first and trade compliance after it, under a "Trade compliance" heading.
@@ -78,7 +81,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.10.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -170,11 +173,11 @@ let FEAT = { trade: true, screening: true };
 const SEP = ['--', 'Trade compliance'];
 const NAV_ALL = [
   { id: 'today', label: 'Dashboard', icon: 'dashboard', v: 'today' },
-  { id: 'inbox', label: 'Review inbox', icon: 'inbox', v: 'review', views: ['review', 'requests', 'minerals', 'ownership', 'screening'] },
   { id: 'orders', label: 'Orders', icon: 'package', v: 'trade', t: 'orders', trade: true },
-  { label: 'Records', icon: 'scroll', items: [['audit', 'Audit log', 'scroll'], SEP, ['trade', 'Customs records', 'filetext', 'records']] },
-  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['govdata', 'Government data', 'landmark'], ['skus', 'Products', 'tag'], ['features', 'Features', 'sliders'], SEP, ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['trade', 'Rules', 'sliders', 'dest']] }
+  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['govdata', 'Government data', 'landmark'], ['skus', 'Products', 'tag'], ['features', 'Features', 'sliders'], SEP, ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['trade', 'Rules', 'sliders', 'dest']] },
+  { label: 'Records', icon: 'scroll', items: [['audit', 'Audit log', 'scroll'], SEP, ['trade', 'Customs records', 'filetext', 'records']] }
 ];
+const OLD_VIEWS = ['review', 'requests', 'minerals', 'ownership', 'screening'];   // pages that were folded into the supplier/customer pages and the Dashboard (1.10.0)
 const isTradeView = (v) => v === 'trade' || v === 'customer';
 const isScreenView = (v) => v === 'screening' || v === 'ownership';
 const viewAllowed = (v) => !(isTradeView(v) && !FEAT.trade) && !(isScreenView(v) && !FEAT.screening);
@@ -219,10 +222,6 @@ const overdueData = (rules) => ((workCache && workCache.cur) || []).filter((r) =
 // Count shown beside a Configuration item: things in that area that are overdue or need action.
 const pillHtml = (n) => n ? `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="${n} need attention">${n > 99 ? '99+' : n}</span>` : '';
 const groupTotal = (g) => (g.items || []).reduce((n, [v, , , t]) => n + menuCount(v, t), 0);
-// Count shown beside a Review inbox tab: items waiting for someone to decide or act.
-const INBOX_KINDS = { review: ['document_review'], ownership: ['ownership_review'], screening: [], requests: ['request_overdue'], minerals: [] };
-const inboxCount = (v) => v === 'screening' ? ((workCache && workCache.hits) || 0) : ((workCache && workCache.rows) || []).filter((w) => (INBOX_KINDS[v] || []).includes(w.kind)).length;
-const inboxTotal = () => Object.keys(INBOX_KINDS).reduce((n, v) => n + inboxCount(v), 0);
 function menuCount(v, t) {
   const rows = (workCache && workCache.rows) || [], today = todayStr();
   if (v === 'govdata') return overdueData(false);
@@ -257,7 +256,7 @@ function bellHtml() {
 function paintBell() {
   const el = document.getElementById('bellCount'); if (!el) return;
   const n = bellCount(); el.textContent = n > 99 ? '99+' : String(n); el.classList.toggle('hidden', !n);
-  document.querySelectorAll('[data-pillfor]').forEach((e) => { e.innerHTML = pillHtml(e.dataset.pillfor === 'total' ? inboxTotal() : /^g\d+$/.test(e.dataset.pillfor) ? groupTotal(NAV[+e.dataset.pillfor.slice(1)]) : inboxCount(e.dataset.pillfor)); });
+  document.querySelectorAll('[data-pillfor]').forEach((e) => { e.innerHTML = /^g\d+$/.test(e.dataset.pillfor) ? pillHtml(groupTotal(NAV[+e.dataset.pillfor.slice(1)])) : ''; });
   const m = document.getElementById('navmenu'); if (m && m.dataset.g === 'bell') m.innerHTML = bellHtml();
 }
 async function refreshBell(force) {
@@ -268,14 +267,9 @@ async function refreshBell(force) {
 }
 function shell(inner) {
   closeNavMenu();
-  if (['review', 'ownership', 'screening', 'requests', 'minerals'].includes(view)) {
-    if (!viewAllowed(view)) return route();
-    const pill = (v, l, ic) => `<button data-a="nav" data-v="${v}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${view === v ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(ic)}${l}<span data-pillfor="${v}">${pillHtml(inboxCount(v))}</span></button>`;
-    inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'CMRT check', 'search')}${FEAT.screening ? pill('ownership', 'Ownership forms', 'users') + pill('screening', 'Screening matches', 'shield') : ''}</div></div>` + inner;
-  }
   const cls = (on) => on ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200';
   const group = (n, gi) => `<button data-a="menu" data-g="${gi}" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}${n.label === 'Configuration' ? `<span data-pillfor="g${gi}">${pillHtml(groupTotal(n))}</span>` : ''} <span class="text-xs opacity-70">&#9662;</span></button>`;
-  const tab = (n) => `<button data-a="nav" data-v="${n.v}" ${n.t ? `data-t="${n.t}"` : ''} class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}${n.id === 'inbox' ? `<span data-pillfor="total">${pillHtml(inboxTotal())}</span>` : ''}</button>`;
+  const tab = (n) => `<button data-a="nav" data-v="${n.v}" ${n.t ? `data-t="${n.t}"` : ''} class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}</button>`;
   const iconBtn = 'relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 hover:bg-slate-100';
   const nb = bellCount();
   $('#app').innerHTML = `
@@ -287,6 +281,7 @@ function shell(inner) {
       <button id="userBtn" data-a="userMenu" aria-haspopup="true" title="${esc(profile?.full_name || user?.email || 'Account')}" class="${iconBtn}">${ico('user', 'h-5 w-5')}</button></div>
   </div></header>
   <main class="max-w-[1920px] mx-auto px-4 lg:px-8 py-5 lg:py-6">${inner}</main>`;
+  const tb = document.getElementById('topbar'); if (tb) document.documentElement.style.setProperty('--tb', tb.offsetHeight + 'px');
   refreshBell();
 }
 const loading = () => shell('<p class="text-slate-500">Loading…</p>');
@@ -295,43 +290,59 @@ const fail = (e) => shell(`<div class="rounded-xl bg-red-50 border border-red-20
 // ---- views -------------------------------------------------------------------
 const ORDER = { high: 0, medium: 1, low: 2 };
 const TONE = { high: 'red', medium: 'amber', low: 'gray' };
-const ROUTE = { documents: 'review', ownership_submissions: 'ownership', parties: 'suppliers', requests: 'requests' };
+// Where a to-do item opens: the party it belongs to, on the tab that has the work.
+const ROUTE_TAB = { documents: 'docs', ownership_submissions: 'screening', requests: 'docs', parties: 'overview', cases: 'screening' };
 
-let dashFilter = null;   // null = show everything, or 'high' | 'medium' | 'low'
+let dashFilter = null, dashArea = null;   // null = show everything; dashFilter is 'high' | 'medium' | 'low'; dashArea is one of AREA_NAME's keys
+const AREA_NAME = { docs: 'Documents to review', req: 'Requests', cmrt: 'No CMRT on file', own: 'Ownership forms', scr: 'Screening', ord: 'Orders', cls: 'Classification', eus: 'End user statements', dat: 'Government data', oth: 'Other' };
+const areaOf = (w) => w.kind === 'document_review' ? 'docs' : /^request_/.test(w.kind) ? 'req' : w.kind === 'missing_cmrt' ? 'cmrt'
+  : (w.kind === 'ownership_review' || w.kind === 'ownership_flag') ? 'own'
+  : (w.kind === 'screening_due' || w.kind === 'lists_stale' || (w.kind === 'case_open' && /^screening match/.test(w.detail || ''))) ? 'scr'
+  : (w.kind === 'order_hold' || w.kind === 'order_unscreened') ? 'ord'
+  : (w.kind === 'skus_unclassified' || w.kind === 'classification_pending' || (w.kind === 'case_open' && /^classification/.test(w.detail || ''))) ? 'cls'
+  : w.kind === 'eus_expiring' ? 'eus' : w.kind === 'data_stale' ? 'dat' : 'oth';
 async function renderToday() {
   loading();
-  const [wk, cu, hh] = await Promise.all([sb.from('v_open_work').select('*'), sb.from('v_data_currency').select('*').order('sort_order'), sb.from('screening_hits').select('id', { count: 'exact', head: true }).eq('status', 'open')]);
+  const [wk, cu, cd, cl] = await Promise.all([sb.from('v_open_work').select('*'), sb.from('v_data_currency').select('*').order('sort_order'),
+    sb.from('documents').select('id,title,status,party:parties(name)').eq('doc_type', 'cmrt').in('status', ['received', 'accepted', 'accepted_with_gaps']),
+    sb.from('cmrt_declarations').select('id,document_id,party_id,archived_at,party:parties(name),smelters:cmrt_smelters(check_status,disposition)')]);
   const { data, error } = wk;
   if (error) return fail(error);
   const cur = cu.error ? null : curSort(cu.data);   // null = database part 11 not installed yet
-  workCache = { at: Date.now(), hits: hh.error ? 0 : (hh.count || 0), rows: data, cur: cur || [] };
+  workCache = { at: Date.now(), rows: data, cur: cur || [] };
   data.sort((a, b) => ORDER[a.severity] - ORDER[b.severity] || (a.due_on || '9').localeCompare(b.due_on || '9'));
-  const n = (s) => data.filter((x) => x.severity === s).length;
   const SEV = { high: 'High', medium: 'Medium', low: 'Low' };
-  const card = (sev, tone) => { const on = dashFilter === sev; return `<button data-a="dashFilter" data-s="${sev}" aria-pressed="${on}" title="${on ? 'Click to show everything' : 'Show only ' + SEV[sev] + ' items'}" class="text-left rounded-xl bg-white border px-4 py-3 transition ${on ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">${SEV[sev]}</span><span class="text-3xl font-semibold ${tone}">${n(sev)}</span></div></button>`; };
+  const byArea = data.filter((x) => !dashArea || areaOf(x) === dashArea);
+  const n = (s) => byArea.filter((x) => x.severity === s).length;
   const row = (w) => `
-      <div class="p-4 flex items-start gap-3">
+      <div class="px-3 py-2.5 flex items-start gap-3">
         <div class="pt-0.5">${badge(SEV[w.severity], TONE[w.severity])}</div>
         <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'govdata' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) ? btn('Review matches', 'nav', { v: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
+        ${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'govdata' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) && w.party_id ? btn('Review matches', 'goParty', { id: w.party_id, tab: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : w.party_id && ROUTE_TAB[w.ref_table] ? btn('Open', 'goParty', { id: w.party_id, tab: ROUTE_TAB[w.ref_table] }, 'ghost') : ''}
       </div>`;
-  const list = (items, empty) => items.length ? `<div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">${items.map(row).join('')}</div>` : `<p class="rounded-xl bg-white border border-slate-200 p-6 text-center text-slate-500">${empty}</p>`;
-  const sect = (title, count, tone, body) => `<section class="mb-6"><div class="flex items-center gap-2 mb-2"><h2 class="text-lg font-semibold">${title}</h2>${badge(String(count), tone)}</div>${body}</section>`;
-  const high = data.filter((x) => x.severity === 'high'), rest = data.filter((x) => x.severity !== 'high');
-  let body;
-  if (dashFilter) {
-    const items = data.filter((x) => x.severity === dashFilter);
-    body = `<div class="flex items-center gap-3 mb-3 text-sm"><span class="text-slate-600">Showing <b>${SEV[dashFilter]}</b> items only.</span>${btn('Show all', 'dashFilter', { s: dashFilter }, 'ghost')}</div>`
-      + sect(dashFilter === 'high' ? 'Urgent' : SEV[dashFilter] + ' priority', items.length, TONE[dashFilter], list(items, 'Nothing here.')) ;
-  } else {
-    body = sect('Urgent', high.length, high.length ? 'red' : 'green', list(high, 'Nothing is urgent right now.'))
-      + sect('Other items', rest.length, 'gray', list(rest, 'Nothing else needs attention.'));
-  }
-  const allOn = !dashFilter, allCard = `<button data-a="dashAll" aria-pressed="${allOn}" title="Show every item" class="text-left rounded-xl bg-white border px-4 py-3 transition ${allOn ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">All</span><span class="text-3xl font-semibold text-slate-900">${data.length}</span></div></button>`;
+  const card = (sev, tone) => { const on = dashFilter === sev; return `<button data-a="dashFilter" data-s="${sev}" aria-pressed="${on}" title="${on ? 'Click to show everything' : 'Show only ' + SEV[sev] + ' items'}" class="text-left rounded-xl bg-white border px-3 py-2 transition ${on ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">${SEV[sev]}</span><span class="text-2xl font-semibold ${tone}">${n(sev)}</span></div></button>`; };
+  const allOn = !dashFilter, allCard = `<button data-a="dashAll" aria-pressed="${allOn}" title="Show every item" class="text-left rounded-xl bg-white border px-3 py-2 transition ${allOn ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">All</span><span class="text-2xl font-semibold text-slate-900">${byArea.length}</span></div></button>`;
+  const shown = byArea.filter((x) => !dashFilter || x.severity === dashFilter);
+  const tile = (title, badgeHtml, body, cls = '') => `<section class="rounded-xl bg-white border border-slate-200 flex flex-col min-h-0 max-h-[26rem] xl:max-h-none ${cls}"><div class="px-4 py-2.5 border-b border-slate-200 flex items-center gap-2 shrink-0"><h2 class="font-semibold">${title}</h2>${badgeHtml || ''}</div><div class="overflow-y-auto min-h-0 flex-1">${body}</div></section>`;
+  const emptyMsg = (t) => `<p class="p-5 text-sm text-center text-slate-500">${t}</p>`;
+  const todoTitle = (dashArea ? AREA_NAME[dashArea] : 'To do') + (dashFilter ? ' · ' + SEV[dashFilter] : '');
+  const todo = tile(todoTitle, badge(String(shown.length), shown.some((x) => x.severity === 'high') ? 'red' : shown.length ? 'amber' : 'green') + (dashArea || dashFilter ? `<span class="ml-auto">${btn('Show all', 'dashAll', {}, 'ghost')}</span>` : ''),
+    shown.length ? `<div class="divide-y divide-slate-100">${shown.map(row).join('')}</div>` : emptyMsg(dashArea || dashFilter ? 'Nothing here.' : 'Nothing needs attention right now.'), 'xl:col-span-2');
+  // by area
+  const counts = {}; for (const w of data) counts[areaOf(w)] = (counts[areaOf(w)] || 0) + 1;
+  const areas = Object.keys(AREA_NAME).filter((k) => counts[k]);
+  const areaTile = tile('By area', '', areas.length ? `<div class="p-2 flex flex-wrap gap-2">${areas.map((k) => `<button data-a="dashArea" data-k="${k}" aria-pressed="${dashArea === k}" class="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${dashArea === k ? 'border-slate-900 ring-2 ring-slate-900 bg-slate-50' : 'border-slate-200 hover:border-slate-400'}">${esc(AREA_NAME[k])}<span class="rounded-full bg-amber-100 px-2 text-xs font-semibold text-amber-800">${counts[k]}</span></button>`).join('')}</div>` : emptyMsg('All clear.'));
+  // CMRT check
+  const decls = cd.error || cl.error ? [] : cl.data, done = new Set(decls.map((d) => d.document_id)), pend = cd.error ? [] : cd.data.filter((d) => !done.has(d.id));
+  const flagBy = new Map(); for (const d of decls.filter((d) => !d.archived_at)) { const k = (d.smelters || []).filter(isOpenFlag).length; if (k) { const o = flagBy.get(d.party_id) || { name: d.party?.name, n: 0 }; o.n += k; flagBy.set(d.party_id, o); } }
+  const cmrtRows = pend.map((d) => `<div class="px-3 py-2.5 flex items-center gap-3"><div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(d.party?.name || d.title)}</div><div class="text-xs text-slate-500">${esc(d.title)} · not read yet</div></div>${btn('Read & check', 'parse', { id: d.id })}</div>`).join('')
+    + [...flagBy.entries()].map(([pid, o]) => `<div class="px-3 py-2.5 flex items-center gap-3"><div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(o.name || '')}</div><div class="text-xs text-slate-500">${o.n} flagged smelter${o.n > 1 ? 's' : ''}</div></div>${btn('Review', 'goParty', { id: pid, tab: 'smelters' }, 'ghost')}</div>`).join('');
+  const cmrtTile = tile('CMRT check', badge(String(pend.length + flagBy.size), pend.length + flagBy.size ? 'amber' : 'green'), cmrtRows ? `<div class="divide-y divide-slate-100">${cmrtRows}</div>` : emptyMsg('Every CMRT has been read and no smelters are flagged.'));
   shell(`
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">${allCard}${card('high', 'text-red-600')}${card('medium', 'text-amber-600')}${card('low', 'text-slate-600')}</div>
-    <p class="text-xs text-slate-400 mt-1.5 mb-5">Click High, Medium or Low to show only those items. Click All to show everything.</p>
-    <div class="min-w-0">${body}</div>`);
+    <div class="flex flex-col gap-3 xl:h-[calc(100dvh-var(--tb,5rem)-3rem)]">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">${allCard}${card('high', 'text-red-600')}${card('medium', 'text-amber-600')}${card('low', 'text-slate-600')}</div>
+      <div class="grid gap-3 xl:grid-cols-3 xl:flex-1 xl:min-h-0">${todo}<div class="grid gap-3 xl:grid-rows-2 min-h-0">${areaTile}${cmrtTile}</div></div>
+    </div>`);
 }
 
 // ---- data currency (when outside data and reviews were last updated) --------------------------
@@ -417,20 +428,23 @@ async function renderFeatures() {
 
 async function renderSuppliers() {
   loading();
-  const [sr, cr, ir] = await Promise.all([sb.from('v_supplier_status').select('*').order('name'), sb.from('party_contacts').select('party_id,name,email').eq('is_active', true).order('created_at', { ascending: false }), sb.from('parties').select('id,name,country,notes').contains('roles', ['supplier']).eq('is_active', false).order('name')]);
+  const [sr, cr, ir, pr] = await Promise.all([sb.from('v_supplier_status').select('*').order('name'), sb.from('party_contacts').select('party_id,name,email').eq('is_active', true).order('created_at', { ascending: false }), sb.from('parties').select('id,name,country,notes').contains('roles', ['supplier']).eq('is_active', false).order('name'), FEAT.screening ? sb.from('v_party_status').select('party_id,open_hits,confirmed_hits,last_screened_at') : Promise.resolve({ data: [] })]);
   const { data, error } = sr; if (error || cr.error) return fail(error || cr.error);
   const inactive = ir.data || [];
+  const scr = new Map(((pr && pr.data) || []).map((x) => [x.party_id, x])), scrBadge = (id) => { const x = scr.get(id); return !x ? badge('Not screened', 'gray') : x.confirmed_hits > 0 ? badge('Confirmed match', 'red') : x.open_hits > 0 ? badge(x.open_hits + ' to review', 'amber') : x.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray'); };
+  const confirmed = data.filter((s) => (scr.get(s.party_id) || {}).confirmed_hits > 0).length;
   const contactOf = new Map(); for (const c of cr.data) if (!contactOf.has(c.party_id)) contactOf.set(c.party_id, c);
   const cmrt = (s) => !s.cmrt_status ? badge('No CMRT', 'red') : s.cmrt_expired ? badge('Expired', 'red') : s.cmrt_status === 'received' ? badge('Awaiting review', 'amber') : s.cmrt_status === 'accepted_with_gaps' ? badge('Accepted with gaps', 'amber') : badge('Current', 'green');
-  shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2>${btn('+ Add supplier', 'addSupplier')}</div>
+  shell(`<div class="flex items-center justify-between mb-4"><h2 class="text-xl font-semibold">Suppliers</h2><div class="flex gap-2">${FEAT.screening ? btn('Screen all parties', 'screenAllBtn', {}, 'ghost') : ''}${btn('+ Add supplier', 'addSupplier')}</div></div>
+  ${confirmed ? `<div class="mb-4 rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700"><b>${confirmed} supplier${confirmed > 1 ? 's have' : ' has'} a confirmed match.</b> Confirmed matches need escalation outside this tool (counsel, and no shipments or payments until decided).</div>` : ''}
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Contact</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th><th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
+    <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Contact</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th>${FEAT.screening ? '<th class="p-3">Screening</th>' : ''}<th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
     <tbody class="divide-y divide-slate-100">${data.map((s) => `<tr>
       <td class="p-3 font-medium"><button data-a="openSupplier" data-id="${esc(s.party_id)}" class="text-left font-medium hover:underline">${esc(s.name)}</button><div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
       <td class="p-3">${contactOf.has(s.party_id) ? `${esc(contactOf.get(s.party_id).name)}<div class="text-xs text-slate-400">${esc(contactOf.get(s.party_id).email || '')}</div>` : '<span class="text-slate-400">None yet</span>'}</td>
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
       <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
-      <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
+      ${FEAT.screening ? `<td class="p-3">${scrBadge(s.party_id)}</td>` : ''}<td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
       <td class="p-3 text-right whitespace-nowrap">${btn('Open', 'openSupplier', { id: s.party_id }, 'ghost')} ${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
     </tbody></table></div>
   ${inactive.length ? `<details class="mt-4 rounded-xl bg-white border border-slate-200 p-3"><summary class="text-sm font-medium cursor-pointer">Inactive suppliers (${inactive.length})</summary>
@@ -438,9 +452,25 @@ async function renderSuppliers() {
 }
 
 
+// ---- screening and ownership panel (the "Screening" tab on supplier and customer pages) -------------------
+async function screeningPanel(partyId, ps) {
+  const [hi, os] = await Promise.all([
+    sb.from('screening_hits').select('id,party_id,matched_name,score,band,status,country_corroborated,created_at,party:parties(name,country,address_line,kind),entry:sanctions_entries(source_list,name,entry_type,countries,programs,remarks,addresses,listed_on)').eq('party_id', partyId).in('status', ['open', 'confirmed']).order('score', { ascending: false }),
+    sb.from('ownership_submissions').select('*, party:parties(name)').eq('party_id', partyId).eq('status', 'pending_review').order('certified_at')]);
+  if (hi.error || os.error) return `<div class="rounded-xl bg-red-50 border border-red-200 p-4 text-sm text-red-700">${esc((hi.error || os.error).message)}</div>`;
+  hitsById = new Map(hi.data.map((h) => [h.id, h]));
+  const box = (t, inner) => `<div class="rounded-xl bg-white border border-slate-200"><div class="px-4 py-3 border-b border-slate-200 font-semibold">${t}</div>${inner}</div>`;
+  const state = ps && ps.confirmed_hits > 0 ? badge('Confirmed match', 'red') : ps && ps.open_hits > 0 ? badge(ps.open_hits + ' to review', 'amber') : ps && ps.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray');
+  const status = `<div class="px-4 py-3 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[12rem]"><div class="flex items-center gap-2">${state}</div><div class="text-sm text-slate-500 mt-1">${ps && ps.last_screened_at ? 'Last screened ' + fmt(ps.last_screened_at) + (daysAgo(ps.last_screened_at) > 30 ? ' · re-screen due' : '') : 'Never screened against the restricted party lists.'}</div></div>${btn('Screen now', 'screenNow', { id: partyId })}</div>`;
+  const hits = hi.data.length ? hi.data.map((h) => `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[14rem]"><div class="font-medium">May match ${esc(h.matched_name)}</div><div class="text-sm text-slate-500">${esc(listName(h.entry?.source_list))} · ${Math.round(h.score * 100)}% similar${h.country_corroborated ? ' · same country' : ''}</div></div>${h.status === 'confirmed' ? badge('Confirmed', 'red') : badge(h.band === 'likely' ? 'Likely' : 'Possible', h.band === 'likely' ? 'red' : 'amber')}${h.status === 'open' ? btn('Review', 'hitReview', { id: h.id }) : ''}</div>`).join('') : '<p class="p-5 text-sm text-slate-500">No matches waiting.</p>';
+  const owners = os.data.map((o) => `<div class="px-4 py-3 border-t border-slate-100 first:border-t-0"><div class="flex flex-wrap items-start gap-3"><div class="flex-1 min-w-[12rem]"><div class="font-medium">Ownership form</div><div class="text-sm text-slate-500">Certified by ${esc(o.certifier_name)}${o.certifier_title ? ', ' + esc(o.certifier_title) : ''} on ${fmt(o.certified_at)}</div></div><div class="flex gap-2">${btn('Accept & screen owners', 'own', { id: o.id, s: 'accept' })}${btn('Send back', 'own', { id: o.id, s: 'reject' }, 'danger')}</div></div>
+      ${o.none_above_threshold && !(o.rows || []).length ? '<p class="mt-2 text-sm text-slate-600">States no owners at or above the threshold.</p>' : `<table class="mt-2 w-full text-sm"><thead class="text-left text-slate-500"><tr><th class="py-1">Name</th><th>Type</th><th>Country</th><th>Percent</th><th>Relationship</th></tr></thead><tbody>${(o.rows || []).map((r) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(r.name)}</td><td>${esc(r.kind)}</td><td>${esc(r.country)}</td><td>${esc(r.percent)}%</td><td>${esc(r.relationship)}</td></tr>`).join('')}</tbody></table>`}</div>`).join('');
+  return `<div class="space-y-4">${box('Restricted party screening', status)}${box('Possible matches', hits)}${os.data.length ? box('Ownership forms waiting for review', owners + '<p class="px-4 pb-3 text-xs text-slate-500">Suppliers state who owns 10% or more of their company. Accepting a form screens each listed owner against the restricted party lists.</p>') : ''}</div>`;
+}
+
 // ---- supplier page: status, next step, and tabs --------------------------------------------------
 let supId = null, supTab = 'overview';
-const SUP_TABS = [['overview', 'Overview', 'eye'], ['docs', 'Documents & requests', 'filetext'], ['smelters', 'Smelters', 'gem'], ['products', 'Products', 'tag'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
+const SUP_TABS = [['overview', 'Overview', 'eye'], ['docs', 'Documents & requests', 'filetext'], ['smelters', 'Smelters', 'gem'], ['screening', 'Screening', 'shield'], ['products', 'Products', 'tag'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
 const daysUntil = (d) => d ? Math.round((new Date(d + 'T12:00:00') - new Date(todayStr() + 'T12:00:00')) / 864e5) : null;
 const DOC_STATUS = { received: ['Waiting for review', 'amber'], accepted: ['Accepted', 'green'], accepted_with_gaps: ['Accepted with gaps', 'amber'], rejected: ['Rejected', 'red'] };
 function supNext(c) {
@@ -448,10 +478,10 @@ function supNext(c) {
   const waiting = docs.filter((d) => d.status === 'received').length, flagged = decls.filter((d) => declInfo(d).open > 0).reduce((n, d) => n + declInfo(d).open, 0);
   const overdue = reqs.filter((r) => ['sent', 'reminded'].includes(r.status) && r.due_on && r.due_on < todayStr());
   const left = daysUntil(st?.valid_until);
-  if (FEAT.screening && c.own && c.own.length) return { tone: 'amber', title: `Review ${c.own.length} ownership form${c.own.length > 1 ? 's' : ''}`, text: 'The supplier listed its owners. Accepting screens each owner.', act: btn('Review ownership forms', 'nav', { v: 'ownership' }) };
+  if (FEAT.screening && c.own && c.own.length) return { tone: 'amber', title: `Review ${c.own.length} ownership form${c.own.length > 1 ? 's' : ''}`, text: 'The supplier listed its owners. Accepting screens each owner.', act: btn('Review ownership forms', 'supTab', { v: 'screening' }) };
   if (waiting) return { tone: 'amber', title: `Review ${waiting} document${waiting > 1 ? 's' : ''} waiting`, text: 'The supplier sent something that needs a decision.', act: btn('Review documents', 'supTab', { v: 'docs' }) };
   if (flagged) return { tone: 'red', title: `Review ${flagged} flagged smelter${flagged > 1 ? 's' : ''}`, text: 'Decide whether to accept each one, ask the supplier, or mark it as not used.', act: btn('Review smelters', 'supTab', { v: 'smelters' }) };
-  if (FEAT.screening && ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'nav', { v: 'screening' }) };
+  if (FEAT.screening && ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'supTab', { v: 'screening' }) };
   if (!contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'Requests go to a named person.', act: btn('Manage contact', 'addContact', { id, name }) };
   if (!st?.cmrt_status || st.cmrt_expired) return { tone: 'red', title: 'Request a conflict minerals form', text: st?.cmrt_status ? 'The last form has expired.' : 'No form on file yet.', act: btn('Request documents', 'reqDocs', { id, name }) };
   if (overdue.length) return { tone: 'amber', title: `${overdue.length} request${overdue.length > 1 ? 's are' : ' is'} overdue`, text: 'Send a reminder.', act: btn('See requests', 'supTab', { v: 'docs' }) };
@@ -489,7 +519,7 @@ async function renderSupplier() {
     : c.ps && c.ps.last_screened_at ? tile('Restricted party screening', 'Clear', badge('Screened ' + fmt(c.ps.last_screened_at), 'green'), '') : tile('Restricted party screening', 'Not screened', badge('Screen now', 'amber'), '');
   const reqTile = tile('Open requests', openReqs.length ? `${openReqs.length} open` : 'None', overdueReqs.length ? badge(overdueReqs.length + ' overdue', 'red') : badge(openReqs.length ? 'On track' : 'All done', openReqs.length ? 'gray' : 'green'), '');
   const banner = `<div class="mt-4 rounded-xl border-2 ${next.tone === 'red' ? 'border-red-500 bg-red-50' : next.tone === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'} p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Next step</div><div class="text-lg font-semibold">${esc(next.title)}</div><div class="text-sm text-slate-600">${esc(next.text)}</div></div>${next.act}</div>`;
-  const tabs = SUP_TABS.map(([k, l, ic]) => { const n = k === 'smelters' && flagged ? ` ${badge(String(flagged), 'red')}` : k === 'docs' && c.docs.some((d) => d.status === 'received') ? ` ${badge(String(c.docs.filter((d) => d.status === 'received').length), 'amber')}` : ''; return `<button data-a="supTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${supTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${n}</button>`; }).join('');
+  const tabs = SUP_TABS.filter(([k]) => FEAT.screening || k !== 'screening').map(([k, l, ic]) => { const scrN = (c.ps ? (c.ps.open_hits || 0) + (c.ps.confirmed_hits || 0) : 0) + c.own.length; const n = k === 'screening' && scrN ? ` ${badge(String(scrN), 'red')}` : k === 'smelters' && flagged ? ` ${badge(String(flagged), 'red')}` : k === 'docs' && c.docs.some((d) => d.status === 'received') ? ` ${badge(String(c.docs.filter((d) => d.status === 'received').length), 'amber')}` : ''; return `<button data-a="supTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${supTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${n}</button>`; }).join('');
   const card = (t, inner) => `<div class="rounded-xl bg-white border border-slate-200"><div class="px-4 py-3 border-b border-slate-200 font-semibold">${t}</div>${inner}</div>`;
   const none = (t) => `<p class="p-5 text-sm text-slate-500">${t}</p>`;
   const docRow = (d) => { const [t, tone] = DOC_STATUS[d.status] || [d.status, 'gray']; return `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div><div class="text-xs text-slate-500">${esc(d.doc_type)} · received ${fmt(d.created_at)}${d.valid_until ? ' · valid until ' + fmt(d.valid_until) : ''}</div></div>${badge(t, tone)}${isCmrt(d) ? btn('View', 'viewDoc', { id: d.id }, 'ghost') : ''}${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${d.status === 'received' ? btn('Accept', 'doc', { id: d.id, s: 'accepted' }) + btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost') + btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger') : ''}</div>`; };
@@ -503,7 +533,9 @@ async function renderSupplier() {
     body = `<div class="space-y-4">${card('Documents', c.docs.map(docRow).join('') || none('No documents yet.'))}${card('Requests', c.reqs.map(reqRow).join('') || none('No requests yet.'))}</div>`;
   } else if (supTab === 'smelters') {
     const rows = c.decls.map((d) => ({ d, i: declInfo(d) }));
-    body = card('Conflict minerals declarations', rows.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody class="divide-y divide-slate-100">${rows.map(({ d, i }) => `<tr${i.key === 'archived' ? ' class="text-slate-400"' : ''}><td class="p-3">${d.reporting_year}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${i.badge}</td><td class="p-3 text-right">${btn('Review', 'findings', { id: d.id, doc: d.document_id })}</td></tr>`).join('')}</tbody></table>` : none('No conflict minerals form has been read for this supplier yet. When one is uploaded, open it under Documents, or use Review inbox › Smelter check.'));
+    body = card('Conflict minerals declarations', rows.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody class="divide-y divide-slate-100">${rows.map(({ d, i }) => `<tr${i.key === 'archived' ? ' class="text-slate-400"' : ''}><td class="p-3">${d.reporting_year}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${i.badge}</td><td class="p-3 text-right">${btn('Review', 'findings', { id: d.id, doc: d.document_id })}</td></tr>`).join('')}</tbody></table>` : none('No conflict minerals form has been read for this supplier yet. When one is uploaded, open it under Documents, or use the CMRT check tile on the Dashboard.'));
+  } else if (supTab === 'screening' && FEAT.screening) {
+    body = await screeningPanel(id, c.ps);
   } else if (supTab === 'products') {
     body = card('Products from this supplier', c.skus.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-slate-100">${c.skus.map((k) => `<tr><td class="p-3 font-medium">${esc(k.sku)}</td><td class="p-3">${esc(k.description || '')}</td><td class="p-3">${badge(k.status, k.status === 'active' ? 'green' : 'gray')}</td></tr>`).join('')}</tbody></table>` : none('No SKUs are linked to this supplier.'));
   } else if (supTab === 'contacts') {
@@ -523,12 +555,12 @@ async function renderSupplier() {
 
 // ---- customer (party) page: status, next step, and tabs ------------------------------------------
 let custId = null, custTab = 'overview';
-const CUST_TABS = [['overview', 'Overview', 'eye'], ['orders', 'Orders', 'package'], ['statements', 'End user statements', 'filetext'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
+const CUST_TABS = [['overview', 'Overview', 'eye'], ['orders', 'Orders', 'package'], ['statements', 'End user statements', 'filetext'], ['screening', 'Screening', 'shield'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
 function custNext(c) {
   const { ps, eu, contacts, orders } = c, id = custId, name = c.party.name, isCust = (c.party.roles || []).includes('customer');
   const hold = orders.find((o) => o.status === 'hold'), left = daysUntil(eu?.valid_until);
-  if (ps && ps.confirmed_hits > 0) return { tone: 'red', title: 'Confirmed list match', text: 'No shipments or payments until counsel has decided. Orders for this party cannot be released.', act: btn('Review matches', 'nav', { v: 'screening' }) };
-  if (ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This party may match a restricted party list, which holds its orders.', act: btn('Review matches', 'nav', { v: 'screening' }) };
+  if (ps && ps.confirmed_hits > 0) return { tone: 'red', title: 'Confirmed list match', text: 'No shipments or payments until counsel has decided. Orders for this party cannot be released.', act: btn('Review matches', 'custTab', { v: 'screening' }) };
+  if (ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This party may match a restricted party list, which holds its orders.', act: btn('Review matches', 'custTab', { v: 'screening' }) };
   if (isCust && !contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'The end user statement link goes to a named person.', act: btn('Manage contact', 'addContact', { id, name }) };
   if (isCust && (!eu || eu.state === 'none')) return { tone: hold || orders.length ? 'red' : 'amber', title: 'Get an end user statement', text: 'Orders to this customer are held until a signed statement is on file.', act: btn('End user statement', 'eus', { id, name }) };
   if (isCust && eu.state === 'expired') return { tone: 'red', title: 'The end user statement has expired', text: 'Send a new signing link. Orders are held until it is renewed.', act: btn('End user statement', 'eus', { id, name }) };
@@ -568,7 +600,7 @@ async function renderCustomer() {
   const ordTile = tile('Open orders', open.length ? `${open.length} open` : 'None', held.length ? badge(held.length + ' on hold', 'red') : badge(open.length ? 'Not screened yet' : 'All shipped or closed', open.length ? 'gray' : 'green'), '');
   const lastTile = tile('Last order', orders[0] ? esc(orders[0].reference) : 'None yet', orders[0] ? badge(ORDER_LABEL[orders[0].status] || orders[0].status, ORDER_TONE[orders[0].status] || 'gray') : badge('No orders', 'gray'), orders[0] ? fmt(orders[0].transaction_date) : '');
   const banner = `<div class="mt-4 rounded-xl border-2 ${next.tone === 'red' ? 'border-red-500 bg-red-50' : next.tone === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'} p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Next step</div><div class="text-lg font-semibold">${esc(next.title)}</div><div class="text-sm text-slate-600">${esc(next.text)}</div></div>${next.act}</div>`;
-  const tabs = CUST_TABS.filter(([k]) => isCust || k !== 'statements').map(([k, l, ic]) => `<button data-a="custTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${custTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${k === 'orders' && held.length ? ' ' + badge(String(held.length), 'red') : ''}</button>`).join('');
+  const tabs = CUST_TABS.filter(([k]) => (isCust || k !== 'statements') && (FEAT.screening || k !== 'screening')).map(([k, l, ic]) => `<button data-a="custTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${custTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${k === 'orders' && held.length ? ' ' + badge(String(held.length), 'red') : ''}</button>`).join('');
   const card = (t, inner) => `<div class="rounded-xl bg-white border border-slate-200"><div class="px-4 py-3 border-b border-slate-200 font-semibold">${t}</div>${inner}</div>`;
   const none = (t) => `<p class="p-5 text-sm text-slate-500">${t}</p>`;
   const orderRow = (o) => `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[10rem]"><div class="font-medium">${esc(o.reference)}</div><div class="text-xs text-slate-500">${fmt(o.transaction_date)} · to ${esc(o.destination_country || '?')} · ${esc((PARTY_ROLES.find((r) => r[0] === o.role) || [0, o.role])[1])}${o.shipped_on ? ' · shipped ' + fmt(o.shipped_on) : ''}</div></div>${badge(ORDER_LABEL[o.status] || o.status, ORDER_TONE[o.status] || 'gray')}${btn('Open', 'openOrder', { id: o.id }, 'ghost')}</div>`;
@@ -582,6 +614,8 @@ async function renderCustomer() {
     body = card('Orders', orders.map(orderRow).join('') || none('No orders yet.'));
   } else if (custTab === 'statements') {
     body = card('End user statements', (c.stmts.map(stmtRow).join('') || none('No statement on file.')) + `<div class="px-4 py-3 border-t border-slate-200">${btn('Send or upload a statement', 'eus', { id, name }, 'ghost')}</div>`);
+  } else if (custTab === 'screening' && FEAT.screening) {
+    body = await screeningPanel(id, c.ps);
   } else if (custTab === 'contacts') {
     body = card('Contacts', (c.contacts.map((x) => `<div class="px-4 py-3 border-t border-slate-100 first:border-t-0"><div class="font-medium">${esc(x.name)}</div><div class="text-xs text-slate-500">${esc(x.email || 'no email')}</div></div>`).join('') || none('No contacts yet.')) + `<div class="px-4 py-3 border-t border-slate-200">${btn(c.contacts.length ? 'Manage contact' : 'Add contact', 'addContact', { id, name }, 'ghost')}</div>`);
   } else {
@@ -1291,7 +1325,7 @@ async function openOrder(id) {
   if (o.status === 'blocked') nx = { tone: 'red', title: 'This order is blocked', text: o.decision_notes || 'It cannot ship.', act: '' };
   else if (!o.screened_at) nx = { tone: 'amber', title: 'Screen this order', text: 'Check the parties, the destination and the items.', act: btn('Screen order', 'screenOrder', { id }) };
   else if (miss) nx = { tone: 'red', title: 'Next: ' + miss.label, text: miss.detail || 'This check holds the shipment until it is done.', act: act(miss) };
-  else if (o.status === 'hold') nx = { tone: 'red', title: 'Review the hold', text: holds[0] || 'A screening result or country rule is holding this order.', act: btn('Review matches', 'nav', { v: 'screening' }, 'ghost') + btn('Release…', 'orderDecide', { id, d: 'cleared' }) };
+  else if (o.status === 'hold') nx = { tone: 'red', title: 'Review the hold', text: holds[0] || 'A screening result or country rule is holding this order.', act: (cust ? btn('Review matches', 'goParty', { id: cust.id, tab: 'screening' }, 'ghost') : '') + btn('Release…', 'orderDecide', { id, d: 'cleared' }) };
   else if (o.shipped_on) nx = { tone: 'green', title: 'Shipped', text: rt.data?.keep_until ? 'Keep the records until ' + fmt(rt.data.keep_until) + '.' : 'Keep the records for the retention period.', act: '' };
   else if (o.status === 'cleared') nx = { tone: 'green', title: 'Ready to ship', text: (openNotes ? openNotes + ' recommended item' + (openNotes > 1 ? 's are' : ' is') + ' still open. ' : '') + 'Record the ship date below once it ships.', act: '' };
   else nx = { tone: 'amber', title: 'Screen this order again', text: 'Re-run the check to update its status.', act: btn('Re-screen', 'screenOrder', { id }) };
@@ -1372,7 +1406,7 @@ async function tradeParties() {
   const sm = new Map((st.data || []).map((s) => [s.party_id, s])), em = new Map((eu.data || []).map((s) => [s.party_id, s])), rows = pa.data.filter((p) => !(p.roles.length === 1 && p.roles[0] === 'supplier'));
   const eusCell = (p) => { if (!p.roles.includes('customer')) return '<span class="text-slate-300">-</span>'; const e = em.get(p.id); if (!e) return badge('None', 'gray'); return badge(EUS_LABEL[e.state] + (e.state === 'valid' ? ' until ' + fmt(e.valid_until) : ''), EUS_TONE[e.state]); };
   return {
-    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Everyone you ship to, sell to or route through. Customers also carry an end user statement. Suppliers are managed on the Suppliers tab.</p><div class="ml-auto">${btn('+ Add party', 'editParty', { id: '' })}</div></div>
+    html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Everyone you ship to, sell to or route through. Customers also carry an end user statement. Suppliers are managed on the Suppliers tab.</p><div class="ml-auto flex gap-2">${FEAT.screening ? btn('Screen all parties', 'screenAllBtn', {}, 'ghost') : ''}${btn('+ Add party', 'editParty', { id: '' })}</div></div>
     <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Name</th><th class="p-3">Roles</th><th class="p-3">Country</th><th class="p-3">Public co.</th><th class="p-3">Screening</th><th class="p-3">End user statement</th><th class="p-3"></th></tr></thead>
     <tbody class="divide-y divide-slate-100">${rows.map((p) => { const s = sm.get(p.id) || {}; return `<tr${p.is_active ? '' : ' class="text-slate-400"'}><td class="p-3 font-medium"><button data-a="openCustomer" data-id="${esc(p.id)}" class="text-left font-medium hover:underline">${esc(p.name)}</button>${p.is_active ? '' : ' (inactive)'}</td><td class="p-3">${esc(p.roles.map((r) => (PARTY_ROLES.find((x) => x[0] === r) || [0, r])[1]).join(', '))}</td><td class="p-3">${esc(p.country || '')}</td><td class="p-3">${p.public_company ? 'Yes' : ''}</td><td class="p-3">${s.confirmed_hits > 0 ? badge('Confirmed match', 'red') : s.open_hits > 0 ? badge(s.open_hits + ' to review', 'amber') : s.last_screened_at ? badge('Clear', 'green') : badge('Not screened', 'gray')}</td><td class="p-3">${eusCell(p)}</td><td class="p-3 text-right whitespace-nowrap">${btn('Open', 'openCustomer', { id: p.id }, 'ghost')} ${btn('Edit', 'editParty', { id: p.id }, 'ghost')}${p.roles.includes('customer') ? ' ' + btn('Contact', 'addContact', { id: p.id, name: p.name }, 'ghost') + ' ' + btn('EUS', 'eus', { id: p.id, name: p.name }, 'ghost') : ''}</td></tr>`; }).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No customers or ship-to parties yet.</td></tr>'}</tbody></table></div>`
   };
@@ -1866,14 +1900,14 @@ const actions = {
   screenNow: async ({ id }) => {
     toast('Screening…');
     const r = await sb.rpc('screen_party', { p_party: id });
-    if (r.error) return toast(/No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Open the Screening tab and load one first.' : r.error.message);
+    if (r.error) return toast(/No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Load one under Configuration > Government data first.' : r.error.message);
     const s = await sb.from('screenings').select('result').eq('id', r.data).single();
-    if (s.data?.result === 'clear') { toast('Screened: no matches.'); route(); } else { toast('Possible matches found. Opening Screening.'); view = 'screening'; route(); }
+    if (s.data?.result === 'clear') { toast('Screened: no matches.'); route(); } else { toast('Possible matches found. Open the party to review them.'); route(); }
   },
   screenAllBtn: async () => {
     modal(`<h3 class="text-lg font-semibold">Screening all parties</h3><p id="ldMsg" class="text-sm text-slate-600 mt-2">Starting…</p>`);
     try {
-      const res = await screenAll('manual'); renderScreening();
+      const res = await screenAll('manual'); route();
       modal(`<h3 class="text-lg font-semibold">Screening finished</h3><p class="text-sm mt-2">${res.n} part${res.n === 1 ? 'y' : 'ies'} screened. ${res.open ? `<b class="text-amber-700">${res.open} possible match${res.open > 1 ? 'es' : ''} to review.</b>` : 'No matches.'}</p>${res.skipped.length ? `<p class="text-xs text-red-600 mt-2">Not screened: ${esc(res.skipped.join('; '))}</p>` : ''}<div class="mt-4 text-right">${btn('Close', 'close')}</div>`);
     } catch (e) { modal(`<p class="text-sm text-red-700">${esc(e.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
   },
@@ -1898,7 +1932,7 @@ const actions = {
   screenOrder: async ({ id }) => {
     toast('Screening order…');
     const r = await sb.rpc('screen_transaction', { p_tx: id });
-    if (r.error) return ($('#fErr') ? ($('#fErr').textContent = /No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Load one on the Screening tab first.' : r.error.message) : toast(r.error.message));
+    if (r.error) return ($('#fErr') ? ($('#fErr').textContent = /No screening lists/.test(r.error.message) ? 'No screening list is loaded yet. Load one under Configuration > Government data first.' : r.error.message) : toast(r.error.message));
     if (view === 'trade' || view === 'customer') route(); else if (view === 'today') route(); openOrder(id);
   },
   orderDecide: ({ id, d }) => modal(`<h3 class="text-lg font-semibold">${d === 'cleared' ? 'Release this order' : 'Block this order'}</h3>
@@ -1999,9 +2033,16 @@ const actions = {
   loadListGo: () => { if (view === 'govdata') { const e = document.getElementById('listLoaders'); if (e) e.scrollIntoView({ behavior: 'smooth' }); } else { view = 'govdata'; route(); } },
   openCustomer: ({ id }) => { custId = id; custTab = 'overview'; view = 'customer'; route(); },
   custTab: ({ v }) => { custTab = v; renderCustomer(); },
+  goParty: async ({ id, tab }) => {
+    closeNavMenu(); if ($('#dlg').open) closeModal();
+    const r = await sb.from('parties').select('roles').eq('id', id).maybeSingle(), roles = (r.data && r.data.roles) || [];
+    if (!roles.includes('supplier') && FEAT.trade) { custId = id; custTab = tab === 'docs' ? 'overview' : tab; view = 'customer'; return route(); }
+    supId = id; supTab = tab || 'overview'; view = 'supplier'; route();
+  },
   openSupplier: ({ id }) => { supId = id; supTab = 'overview'; view = 'supplier'; route(); },
   supTab: ({ v }) => { supTab = v; renderSupplier(); },
-  dashAll: () => { dashFilter = null; renderToday(); },
+  dashAll: () => { dashFilter = null; dashArea = null; renderToday(); },
+  dashArea: ({ k }) => { dashArea = dashArea === k ? null : k; renderToday(); },
   bell: () => { popMenu('bell', '#bellBtn', bellHtml(), 380); refreshBell(true); },
   userMenu: () => popMenu('user', '#userBtn', `<div class="px-4 py-3 border-b border-slate-200"><div class="font-semibold">${esc(profile?.full_name || user?.email || '')}</div><div class="text-xs text-slate-500 break-all">${esc(user?.email || '')}</div><div class="text-xs text-slate-500">Role: ${esc(profile?.role || '')}</div></div><button data-a="signout" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">${ico('logout')}Sign out</button>`, 260),
   bellGo: (d) => {
@@ -2009,9 +2050,9 @@ const actions = {
     if (d.rt === 'transactions') return actions.goTrade({ t: 'orders', id: d.id });
     if (d.k === 'data_stale') return actions.dataCheck({ code: d.id });
     if (d.k === 'eus_expiring') return actions.goEus({ id: d.pid, name: d.name });
-    if (d.rt === 'cases') return actions.nav({ v: 'screening' });
+    if (d.rt === 'cases' && d.pid) return actions.goParty({ id: d.pid, tab: 'screening' });
     if (d.rt === 'skus' || d.rt === 'classifications') return actions.goTrade({ t: 'class' });
-    if (ROUTE[d.rt]) return actions.nav({ v: ROUTE[d.rt] });
+    if (d.pid && ROUTE_TAB[d.rt]) return actions.goParty({ id: d.pid, tab: ROUTE_TAB[d.rt] });
     actions.nav({ v: 'today' });
   },
   recSort: ({ k }) => { recF.dir = recF.sort === k ? -recF.dir : (k === 'date' || k === 'keep' ? -1 : 1); recF.sort = k; renderTrade(); },
@@ -2267,7 +2308,7 @@ document.addEventListener('change', (e) => {
 });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { if (!viewAllowed(view)) { view = 'today'; tradeTab = 'orders'; } ({ features: renderFeatures, ownership: renderOwnership, customer: renderCustomer, today: renderToday, suppliers: renderSuppliers, supplier: renderSupplier, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
+function route() { if (OLD_VIEWS.includes(view) || !viewAllowed(view)) { view = 'today'; tradeTab = 'orders'; } ({ features: renderFeatures, ownership: renderOwnership, customer: renderCustomer, today: renderToday, suppliers: renderSuppliers, supplier: renderSupplier, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
