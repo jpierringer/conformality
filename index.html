@@ -43,6 +43,8 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.7.1  Loading the screening list and the RMAP smelter list now happens on Configuration > Government data (the review pages show status only).
+//         Smelter check is renamed CMRT check.
 // 1.7.0  Supplier page (click a supplier's name): status tiles, a Next step banner and tabs for Documents & requests, Smelters, Products, Contacts and History.
 //         The order file starts with a progress strip and a Next step banner.
 // 1.6.0  New menu: Dashboard, Orders, Review inbox (Documents, Screening matches, Document requests, Smelter check), Records, Configuration
@@ -65,7 +67,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -202,7 +204,7 @@ function shell(inner) {
   closeNavMenu();
   if (['review', 'screening', 'requests', 'minerals'].includes(view)) {
     const pill = (v, l, ic) => `<button data-a="nav" data-v="${v}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${view === v ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(ic)}${l}</button>`;
-    inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('screening', 'Screening matches', 'shield')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'Smelter check', 'search')}</div></div>` + inner;
+    inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('screening', 'Screening matches', 'shield')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'CMRT check', 'search')}</div></div>` + inner;
   }
   const cls = (on) => on ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200';
   const group = (n, gi) => `<button data-a="menu" data-g="${gi}" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label} <span class="text-xs opacity-70">&#9662;</span></button>`;
@@ -244,7 +246,7 @@ async function renderToday() {
       <div class="p-4 flex items-start gap-3">
         <div class="pt-0.5">${badge(SEV[w.severity], TONE[w.severity])}</div>
         <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'screening' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) ? btn('Review matches', 'nav', { v: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
+        ${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'govdata' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) ? btn('Review matches', 'nav', { v: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : ROUTE[w.ref_table] ? btn('Open', 'nav', { v: ROUTE[w.ref_table] }, 'ghost') : ''}
       </div>`;
   const list = (items, empty) => items.length ? `<div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100">${items.map(row).join('')}</div>` : `<p class="rounded-xl bg-white border border-slate-200 p-6 text-center text-slate-500">${empty}</p>`;
   const sect = (title, count, tone, body) => `<section class="mb-6"><div class="flex items-center gap-2 mb-2"><h2 class="text-lg font-semibold">${title}</h2>${badge(String(count), tone)}</div>${body}</section>`;
@@ -273,7 +275,7 @@ function currencyPanel(rows, forceOpen) {
   const bad = rows.filter((r) => r.status !== 'current').length;
   const row = (r) => {
     const [txt, tone] = !r.last_at ? ['Not recorded', 'gray'] : CUR_TONE[r.status];
-    const act = r.is_auto ? btn(r.code === 'rmap' ? 'Load list' : 'Load list', 'nav', { v: r.code === 'rmap' ? 'minerals' : 'screening' }, r.status === 'current' ? 'ghost' : 'primary') : btn('I checked this', 'dataCheck', { code: r.code }, r.status === 'current' ? 'ghost' : 'primary');
+    const act = r.is_auto ? btn('Load list', 'loadListGo', {}, r.status === 'current' ? 'ghost' : 'primary') : btn('I checked this', 'dataCheck', { code: r.code }, r.status === 'current' ? 'ghost' : 'primary');
     return `<tr class="align-top"><td class="py-2 pr-3"><div class="font-medium">${esc(r.label)}</div><div class="text-xs text-slate-500">${r.is_auto ? 'Loaded from a file' : 'Checked by a person'} · every ${r.cadence_days} days</div></td>
       <td class="py-2 pr-3 whitespace-nowrap">${r.last_at ? fmt(r.last_at) : '-'}</td><td class="py-2 pr-3 whitespace-nowrap">${r.due_on ? fmt(r.due_on) : '-'}</td><td class="py-2 pr-3">${badge(txt, tone)}</td><td class="py-2 text-right">${act}</td></tr>`;
   };
@@ -289,7 +291,7 @@ async function dataCheckModal(code) {
     ${d.how_to ? `<p class="text-sm text-slate-500 mt-2"><b>What to do:</b> ${esc(d.how_to)}</p>` : ''}
     ${d.url ? `<p class="text-sm mt-2"><a class="text-blue-700 underline" href="${esc(d.url)}" target="_blank" rel="noopener">Open the source</a></p>` : ''}
     <p class="text-xs text-slate-500 mt-2">Checked every ${d.cadence_days} days. ${d.last_at ? 'Last ' + (d.is_auto ? 'loaded ' : 'checked ') + fmt(d.last_at) + (d.last_note ? ': ' + esc(d.last_note) : '') + '.' : 'Not recorded yet.'}</p>
-    ${d.is_auto ? `<div class="mt-4 flex justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${btn('Go load it', 'nav', { v: d.code === 'rmap' ? 'minerals' : 'screening' })}</div>`
+    ${d.is_auto ? `<div class="mt-4 flex justify-end gap-2">${btn('Close', 'close', {}, 'ghost')}${btn('Go load it', 'nav', { v: 'govdata' })}</div>`
       : `<label class="block mt-3 text-sm">What did you check? (required)<textarea id="dcNote" rows="3" class="${inp}" placeholder="For example: reviewed the latest notices, no changes affecting our codes"></textarea></label>
     <p id="fErr" class="text-xs text-red-600 mt-1 min-h-4"></p>
     <div class="mt-2 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Record check', 'dataCheckSave', { code })}</div>`}`);
@@ -303,20 +305,27 @@ async function dataCheckSave({ code }) {
 
 async function renderGovData() {
   loading();
-  const cu = await sb.from('v_data_currency').select('*').order('sort_order');
+  const [cu, rm, cs] = await Promise.all([sb.from('v_data_currency').select('*').order('sort_order'),
+    sb.from('reference_list_loads').select('loaded_at,row_count').eq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1),
+    sb.from('reference_list_loads').select('loaded_at,row_count').neq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1)]);
   const rows = cu.error ? null : cu.data;
+  const lastOf = (r) => (r.data && r.data[0]) || null;
+  const loadedTxt = (l) => l ? ` Last loaded ${fmt(l.loaded_at)} · ${(l.row_count || 0).toLocaleString()} entries.` : ' Not loaded yet.';
+  const picker = (id, l) => `<label class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${ico('upload')}${l ? 'Load newer list' : 'Load list'}<input id="${id}" type="file" accept="${id === 'cslFile' ? '.csv' : '.xlsx,.xls,.csv'}" class="hidden"></label>`;
   const where = (title, text, button) => `<div class="rounded-xl bg-white border border-slate-200 p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="font-medium">${title}</div><div class="text-sm text-slate-500">${text}</div></div>${button}</div>`;
   shell(`<h2 class="text-xl font-semibold mb-1">Government data</h2>
     <p class="text-sm text-slate-500 mb-4">The outside lists and rules this app depends on. Load the files here, and record each time you review the ones that have no file. The Dashboard reminds you when something is due.</p>
     ${currencyPanel(rows, true)}
-    <h3 class="font-medium mt-6 mb-2">Where to update each one</h3>
+    <h3 id="listLoaders" class="font-medium mt-6 mb-2">Where to update each one</h3>
     <div class="grid gap-3 xl:grid-cols-2">
-      ${where('Restricted party screening list', 'Download the Consolidated Screening List from trade.gov and load the file.', btn('Open screening', 'nav', { v: 'screening' }))}
-      ${where('Smelter list (RMAP)', 'Download the latest smelter reference list from the Responsible Minerals Initiative and load the file.', btn('Open smelter check', 'nav', { v: 'minerals' }))}
+      ${where('Restricted party screening list', 'Download the Consolidated Screening List CSV from trade.gov and load the file here. Loading it screens every active party.' + loadedTxt(lastOf(cs)), picker('cslFile', lastOf(cs)))}
+      ${where('Smelter list (RMAP)', 'Download the latest smelter reference list from the Responsible Minerals Initiative and load the file here.' + loadedTxt(lastOf(rm)), picker('rmapFile', lastOf(rm)))}
       ${where('Destination country rules', 'Your embargoed, restricted and watch countries. Review with counsel.', btn('Open rules', 'goTrade', { t: 'dest' }))}
       ${where('End user statement wording', 'The text customers sign. Counsel should approve any change.', btn('Open rules', 'goTrade', { t: 'dest' }))}
       ${where('Shipment check levels', 'Which order checks hold a shipment, warn, or are only tracked.', btn('Open rules', 'goTrade', { t: 'dest' }))}
     </div>`);
+  $('#rmapFile').onchange = (e) => { importRmap(e.target.files[0]); e.target.value = ''; };
+  $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
 }
 
 async function renderSuppliers() {
@@ -580,15 +589,15 @@ async function renderMinerals() {
     sb.from('cmrt_declarations').select('id,document_id,reporting_year,declaration_scope,is_complete,completeness_notes,archived_at,archive_reason,party:parties(name),document:documents(status),smelters:cmrt_smelters(check_status,disposition)').order('parsed_at', { ascending: false })]);
   if (ld.error || docs.error || decl.error) return fail(ld.error || docs.error || decl.error);
   const done = new Set(decl.data.map((d) => d.document_id)), pending = docs.data.filter((d) => !done.has(d.id)), last = ld.data[0];
-  shell(`<h2 class="text-lg font-semibold mb-3">Smelter check</h2>
+  shell(`<h2 class="text-lg font-semibold">CMRT check</h2>
+  <p class="text-sm text-slate-500 mb-3">Reads the conflict minerals forms (CMRTs) suppliers send in and checks each declared smelter against the RMAP list.</p>
   <div class="rounded-xl bg-white border border-slate-200 p-4 mb-6 flex flex-wrap items-center gap-3">
     <div class="flex-1 min-w-[14rem]"><div class="font-medium">RMAP smelter list</div>
-    <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${last.row_count} smelters` : 'Not loaded yet. Download the latest Smelter Reference List from RMI and load it here.'}</div></div>
-    <label class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${last ? 'Load newer list' : 'Load smelter list'}<input id="rmapFile" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label></div>
+    <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${last.row_count} smelters` : 'Not loaded yet. Load the latest RMAP smelter list under Configuration › Government data.'}</div></div>
+    ${btn('Update in Government data', 'nav', { v: 'govdata' }, 'ghost')}</div>
   <h3 class="font-semibold mb-2">CMRTs waiting to be read</h3>
   <div class="rounded-xl bg-white border border-slate-200 divide-y divide-slate-100 mb-6">${pending.map((d) => `<div class="p-4 flex items-center gap-3"><div class="flex-1"><div class="font-medium">${esc(d.title)}</div><div class="text-sm text-slate-500">${esc(d.party?.name)} · ${esc(d.status.replace('_', ' '))}</div></div>${btn('Read & check smelters', 'parse', { id: d.id })}</div>`).join('') || '<p class="p-6 text-center text-slate-500">Nothing waiting. Uploaded CMRTs appear here.</p>'}</div>
   ${declSection(decl.data)}`);
-  $('#rmapFile').onchange = (e) => importRmap(e.target.files[0]);
   bindMinF();
 }
 
@@ -649,7 +658,7 @@ async function commitRmap() {
   await sb.from('reference_list_loads').update({ status: 'complete' }).eq('id', ld.data.id);
   const decl = await sb.from('cmrt_declarations').select('id');
   for (const d of decl.data || []) await sb.rpc('check_declaration_smelters', { p_declaration: d.id });
-  pendingRmap = null; toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); renderMinerals();
+  pendingRmap = null; toast(`${rows.length} smelters loaded${decl.data?.length ? '; existing declarations re-checked' : ''}`); route();
 }
 
 async function processCmrt(id, openAfter) {
@@ -764,7 +773,7 @@ async function renderScreening() {
   <div class="rounded-xl bg-white border border-slate-200 p-4 mb-6">
     <div class="flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[14rem]"><div class="font-medium">Screening lists ${stale ? badge('Out of date', 'red') : ''}</div>
     <div class="text-sm text-slate-500">${last ? `Loaded ${fmt(last.loaded_at)} · ${(last.row_count || 0).toLocaleString()} entries` : 'No list loaded yet. Screening cannot run until one is.'}</div></div>
-    <label class="rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${last ? 'Load newer list' : 'Load screening list'}<input id="cslFile" type="file" accept=".csv" class="hidden"></label></div>
+    ${btn('Update in Government data', 'nav', { v: 'govdata' }, 'ghost')}</div>
     ${chips ? `<div class="mt-3 flex flex-wrap gap-1.5">${chips}</div>` : ''}
     <p class="text-xs text-slate-500 mt-3">Download the Consolidated Screening List CSV from <a class="underline" target="_blank" rel="noopener" href="https://www.trade.gov/consolidated-screening-list">trade.gov</a>. It combines the OFAC, BIS and State Department lists and is updated daily. Load a fresh copy at least every couple of weeks. Each load keeps the original file with its fingerprint as evidence of what the list said that day.</p></div>
   <h3 class="font-semibold mb-2">Possible matches to review (${hi.data.length})</h3>
@@ -773,7 +782,6 @@ async function renderScreening() {
   <h3 class="font-semibold mb-2">Parties</h3>
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Party</th><th class="p-3">Last screened</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
   <tbody class="divide-y divide-slate-100">${pa.data.map((p) => `<tr><td class="p-3 font-medium">${esc(p.name)}<div class="text-xs text-slate-400">${esc((p.roles || []).join(', '))}${p.country ? ' · ' + esc(p.country) : ''}</div></td><td class="p-3">${p.last_screened_at ? fmt(p.last_screened_at) + (daysAgo(p.last_screened_at) > 30 ? ' <span class="text-xs text-amber-700">re-screen due</span>' : '') : 'Never'}</td><td class="p-3">${status(p)}</td><td class="p-3 text-right">${last ? btn('Screen now', 'screenNow', { id: p.party_id }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-500">No parties yet.</td></tr>'}</tbody></table></div>`);
-  $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
 }
 
 const CSL_LIST = (s) => {
@@ -843,8 +851,8 @@ async function finishCsl(force) {
     await sb.rpc('fail_sanctions_load', { p_load: loadId, p_reason: f.error.message }); return modal(`<p class="text-sm text-red-700">${esc(f.error.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
   }
   setMsg('Screening all parties…');
-  let res; try { res = await screenAll('list_update'); } catch (e) { cslCtx = null; renderScreening(); return modal(`<h3 class="text-lg font-semibold">List loaded, screening did not run</h3><p class="text-sm mt-2">${esc(e.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
-  cslCtx = null; renderScreening();
+  let res; try { res = await screenAll('list_update'); } catch (e) { cslCtx = null; route(); return modal(`<h3 class="text-lg font-semibold">List loaded, screening did not run</h3><p class="text-sm mt-2">${esc(e.message)}</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); }
+  cslCtx = null; route();
   modal(`<h3 class="text-lg font-semibold">Screening list loaded</h3>
     <table class="w-full text-sm mt-3"><thead class="text-left text-slate-500"><tr><th class="py-1">List</th><th>Entries</th><th>Retired</th></tr></thead><tbody>${Object.entries(f.data).map(([l, v]) => `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(listName(l))}</td><td>${v.entries.toLocaleString()}</td><td>${v.retired}</td></tr>`).join('')}</tbody></table>
     <p class="text-sm mt-3">${res.n} part${res.n === 1 ? 'y' : 'ies'} screened. ${res.open ? `<b class="text-amber-700">${res.open} possible match${res.open > 1 ? 'es' : ''} to review.</b>` : 'No matches.'}</p>
@@ -1654,7 +1662,7 @@ const actions = {
   back: () => { const f = lastFindings; showFindings(f.declId, f.docId); },
   commitCsl: () => commitCsl(),
   forceCsl: () => finishCsl(true),
-  cancelCsl: async () => { if (cslCtx) await sb.rpc('fail_sanctions_load', { p_load: cslCtx.loadId, p_reason: 'Cancelled by user' }); cslCtx = null; closeModal(); renderScreening(); },
+  cancelCsl: async () => { if (cslCtx) await sb.rpc('fail_sanctions_load', { p_load: cslCtx.loadId, p_reason: 'Cancelled by user' }); cslCtx = null; closeModal(); route(); },
   hitReview: ({ id }) => hitReviewModal(id),
   doHit: async ({ id }) => {
     const note = $('#htN').value.trim(), d = $('#htD').value;
@@ -1797,6 +1805,7 @@ const actions = {
     closeModal(); toast('Request closed'); renderRequests();
   },
   nav: ({ v, t }) => { closeNavMenu(); if ($('#dlg').open) closeModal(); if (t) tradeTab = t; view = v; route(); },
+  loadListGo: () => { if (view === 'govdata') { const e = document.getElementById('listLoaders'); if (e) e.scrollIntoView({ behavior: 'smooth' }); } else { view = 'govdata'; route(); } },
   openSupplier: ({ id }) => { supId = id; supTab = 'overview'; view = 'supplier'; route(); },
   supTab: ({ v }) => { supTab = v; renderSupplier(); },
   dashAll: () => { dashFilter = null; renderToday(); },
