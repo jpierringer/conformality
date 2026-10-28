@@ -43,6 +43,8 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.7.0  Supplier page (click a supplier's name): status tiles, a Next step banner and tabs for Documents & requests, Smelters, Products, Contacts and History.
+//         The order file starts with a progress strip and a Next step banner.
 // 1.6.0  New menu: Dashboard, Orders, Review inbox (Documents, Screening matches, Document requests, Smelter check), Records, Configuration
 //         (Suppliers, Products, Classifications, Customers, Government data, Rules). Bell shows blocked orders, overdue items and escalations for
 //         everyone. The user icon replaces the name and role. Dashboard has an All filter.
@@ -63,7 +65,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -148,7 +150,7 @@ const NAV = [
   { label: 'Records', icon: 'scroll', items: [['trade', 'Customs records', 'filetext', 'records'], ['audit', 'Audit log', 'scroll']] },
   { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['skus', 'Products', 'tag'], ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['govdata', 'Government data', 'landmark'], ['trade', 'Rules', 'sliders', 'dest']] }
 ];
-const itemOn = (v, t) => view === v && (!t || (v === 'trade' ? tradeTab === t : true));
+const itemOn = (v, t) => (view === v || (v === 'suppliers' && view === 'supplier')) && (!t || (v === 'trade' ? tradeTab === t : true));
 const navOn = (n) => n.items ? n.items.some(([v, , , t]) => itemOn(v, t)) : n.views ? n.views.includes(view) : itemOn(n.v, n.t);
 function closeNavMenu() { const m = document.getElementById('navmenu'); if (m) m.remove(); }
 // popover under a header button (used by the bell and the user icon)
@@ -328,15 +330,97 @@ async function renderSuppliers() {
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
     <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Contact</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th><th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
     <tbody class="divide-y divide-slate-100">${data.map((s) => `<tr>
-      <td class="p-3 font-medium">${esc(s.name)}<div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
+      <td class="p-3 font-medium"><button data-a="openSupplier" data-id="${esc(s.party_id)}" class="text-left font-medium hover:underline">${esc(s.name)}</button><div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
       <td class="p-3">${contactOf.has(s.party_id) ? `${esc(contactOf.get(s.party_id).name)}<div class="text-xs text-slate-400">${esc(contactOf.get(s.party_id).email || '')}</div>` : '<span class="text-slate-400">None yet</span>'}</td>
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
       <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
       <td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
-      <td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
+      <td class="p-3 text-right whitespace-nowrap">${btn('Open', 'openSupplier', { id: s.party_id }, 'ghost')} ${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
     </tbody></table></div>
   ${inactive.length ? `<details class="mt-4 rounded-xl bg-white border border-slate-200 p-3"><summary class="text-sm font-medium cursor-pointer">Inactive suppliers (${inactive.length})</summary>
     <table class="w-full text-sm mt-2"><tbody class="divide-y divide-slate-100">${inactive.map((i) => `<tr class="text-slate-500"><td class="p-2 font-medium">${esc(i.name)}<div class="text-xs text-slate-400">${esc(i.country || '')}${i.notes ? ' · ' + esc(String(i.notes).split('\n').pop()) : ''}</div></td><td class="p-2 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: i.id }, 'ghost')} ${btn('Reactivate', 'supplierActive', { id: i.id, on: '1' }, 'ghost')}</td></tr>`).join('')}</tbody></table></details>` : ''}`);
+}
+
+
+// ---- supplier page: status, next step, and tabs --------------------------------------------------
+let supId = null, supTab = 'overview';
+const SUP_TABS = [['overview', 'Overview', 'eye'], ['docs', 'Documents & requests', 'filetext'], ['smelters', 'Smelters', 'gem'], ['products', 'Products', 'tag'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
+const daysUntil = (d) => d ? Math.round((new Date(d + 'T12:00:00') - new Date(todayStr() + 'T12:00:00')) / 864e5) : null;
+const DOC_STATUS = { received: ['Waiting for review', 'amber'], accepted: ['Accepted', 'green'], accepted_with_gaps: ['Accepted with gaps', 'amber'], rejected: ['Rejected', 'red'] };
+function supNext(c) {
+  const { st, ps, contacts, docs, reqs, decls } = c, id = supId, name = c.party.name;
+  const waiting = docs.filter((d) => d.status === 'received').length, flagged = decls.filter((d) => declInfo(d).open > 0).reduce((n, d) => n + declInfo(d).open, 0);
+  const overdue = reqs.filter((r) => ['sent', 'reminded'].includes(r.status) && r.due_on && r.due_on < todayStr());
+  const left = daysUntil(st?.valid_until);
+  if (waiting) return { tone: 'amber', title: `Review ${waiting} document${waiting > 1 ? 's' : ''} waiting`, text: 'The supplier sent something that needs a decision.', act: btn('Review documents', 'supTab', { v: 'docs' }) };
+  if (flagged) return { tone: 'red', title: `Review ${flagged} flagged smelter${flagged > 1 ? 's' : ''}`, text: 'Decide whether to accept each one, ask the supplier, or mark it as not used.', act: btn('Review smelters', 'supTab', { v: 'smelters' }) };
+  if (ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'nav', { v: 'screening' }) };
+  if (!contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'Requests go to a named person.', act: btn('Manage contact', 'addContact', { id, name }) };
+  if (!st?.cmrt_status || st.cmrt_expired) return { tone: 'red', title: 'Request a conflict minerals form', text: st?.cmrt_status ? 'The last form has expired.' : 'No form on file yet.', act: btn('Request documents', 'reqDocs', { id, name }) };
+  if (overdue.length) return { tone: 'amber', title: `${overdue.length} request${overdue.length > 1 ? 's are' : ' is'} overdue`, text: 'Send a reminder.', act: btn('See requests', 'supTab', { v: 'docs' }) };
+  if (left !== null && left <= 30) return { tone: 'amber', title: 'Ask for a renewed conflict minerals form', text: `The current form expires in ${left} day${left === 1 ? '' : 's'}.`, act: btn('Request documents', 'reqDocs', { id, name }) };
+  if (ps && !ps.last_screened_at) return { tone: 'amber', title: 'Screen this supplier', text: 'Never screened against the restricted party lists.', act: btn('Screen now', 'screenNow', { id }) };
+  return { tone: 'green', title: 'Nothing needed right now', text: 'Documents, smelters and screening are all in good standing.', act: '' };
+}
+async function renderSupplier() {
+  loading();
+  const id = supId;
+  const [pa, st, ps, ct, dc, rq, dl, sk] = await Promise.all([
+    sb.from('parties').select('*').eq('id', id).maybeSingle(),
+    sb.from('v_supplier_status').select('*').eq('party_id', id).maybeSingle(),
+    sb.from('v_party_status').select('*').eq('party_id', id).maybeSingle(),
+    sb.from('party_contacts').select('*').eq('party_id', id).eq('is_active', true).order('created_at', { ascending: false }),
+    sb.from('documents').select('id,title,doc_type,status,issued_on,valid_until,created_at,file_name,storage_path').eq('party_id', id).order('created_at', { ascending: false }),
+    sb.from('requests').select('id,subject,status,due_on,last_reminder_on').eq('party_id', id).order('created_at', { ascending: false }),
+    sb.from('cmrt_declarations').select('id,document_id,reporting_year,declaration_scope,is_complete,completeness_notes,archived_at,archive_reason,document:documents(status),smelters:cmrt_smelters(check_status,disposition)').eq('party_id', id).order('parsed_at', { ascending: false }),
+    sb.from('skus').select('id,sku,description,status').eq('supplier_id', id).order('sku')]);
+  const err = pa.error || ct.error || dc.error || rq.error || dl.error || sk.error;
+  if (err) return fail(err);
+  if (!pa.data) return shell(`<p class="text-slate-600">This supplier could not be found. It may have been merged into another one.</p><div class="mt-3">${btn('Back to Suppliers', 'nav', { v: 'suppliers' }, 'ghost')}</div>`);
+  const c = { party: pa.data, st: st.data, ps: ps.data, contacts: ct.data || [], docs: dc.data || [], reqs: rq.data || [], decls: dl.data || [], skus: sk.data || [] };
+  const next = supNext(c), name = c.party.name, left = daysUntil(c.st?.valid_until), today = todayStr();
+  const openReqs = c.reqs.filter((r) => ['sent', 'reminded', 'received'].includes(r.status)), overdueReqs = openReqs.filter((r) => r.status !== 'received' && r.due_on && r.due_on < today);
+  const flagged = c.decls.filter((d) => !d.archived_at).reduce((n, d) => n + d.smelters.filter(isOpenFlag).length, 0), totalSm = c.decls.filter((d) => !d.archived_at).reduce((n, d) => n + d.smelters.length, 0);
+  const tile = (label, big, bdg, sub) => `<div class="rounded-xl bg-white border border-slate-200 p-4"><div class="text-xs text-slate-500">${label}</div><div class="text-lg font-semibold mt-0.5">${big}</div><div class="mt-1 flex flex-wrap items-center gap-2">${bdg}<span class="text-xs text-slate-500">${sub || ''}</span></div></div>`;
+  const cmrtTile = !c.st?.cmrt_status ? tile('Conflict minerals form (CMRT)', 'None on file', badge('Request one', 'red'), '')
+    : c.st.cmrt_expired ? tile('Conflict minerals form (CMRT)', 'Expired', badge('Renew', 'red'), 'ended ' + fmt(c.st.valid_until))
+    : left !== null && left <= 30 ? tile('Conflict minerals form (CMRT)', `Expires in ${left} day${left === 1 ? '' : 's'}`, badge('Renew soon', 'amber'), 'valid until ' + fmt(c.st.valid_until))
+    : tile('Conflict minerals form (CMRT)', c.st.cmrt_status === 'received' ? 'Awaiting review' : 'Current', badge(c.st.cmrt_status === 'accepted_with_gaps' ? 'Accepted with gaps' : c.st.cmrt_status === 'received' ? 'Review it' : 'In good standing', c.st.cmrt_status === 'accepted' ? 'green' : 'amber'), c.st.valid_until ? 'valid until ' + fmt(c.st.valid_until) : '');
+  const smTile = tile('Smelters declared', totalSm ? `${flagged} flagged of ${totalSm}` : 'None read yet', flagged ? badge('Review needed', 'red') : totalSm ? badge('Clear', 'green') : badge('No declaration', 'gray'), '');
+  const scrTile = c.ps && c.ps.open_hits > 0 ? tile('Restricted party screening', `${c.ps.open_hits} open match${c.ps.open_hits > 1 ? 'es' : ''}`, badge('Review', 'red'), '')
+    : c.ps && c.ps.last_screened_at ? tile('Restricted party screening', 'Clear', badge('Screened ' + fmt(c.ps.last_screened_at), 'green'), '') : tile('Restricted party screening', 'Not screened', badge('Screen now', 'amber'), '');
+  const reqTile = tile('Open requests', openReqs.length ? `${openReqs.length} open` : 'None', overdueReqs.length ? badge(overdueReqs.length + ' overdue', 'red') : badge(openReqs.length ? 'On track' : 'All done', openReqs.length ? 'gray' : 'green'), '');
+  const banner = `<div class="mt-4 rounded-xl border-2 ${next.tone === 'red' ? 'border-red-500 bg-red-50' : next.tone === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'} p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Next step</div><div class="text-lg font-semibold">${esc(next.title)}</div><div class="text-sm text-slate-600">${esc(next.text)}</div></div>${next.act}</div>`;
+  const tabs = SUP_TABS.map(([k, l, ic]) => { const n = k === 'smelters' && flagged ? ` ${badge(String(flagged), 'red')}` : k === 'docs' && c.docs.some((d) => d.status === 'received') ? ` ${badge(String(c.docs.filter((d) => d.status === 'received').length), 'amber')}` : ''; return `<button data-a="supTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${supTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${n}</button>`; }).join('');
+  const card = (t, inner) => `<div class="rounded-xl bg-white border border-slate-200"><div class="px-4 py-3 border-b border-slate-200 font-semibold">${t}</div>${inner}</div>`;
+  const none = (t) => `<p class="p-5 text-sm text-slate-500">${t}</p>`;
+  const docRow = (d) => { const [t, tone] = DOC_STATUS[d.status] || [d.status, 'gray']; return `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div><div class="text-xs text-slate-500">${esc(d.doc_type)} · received ${fmt(d.created_at)}${d.valid_until ? ' · valid until ' + fmt(d.valid_until) : ''}</div></div>${badge(t, tone)}${isCmrt(d) ? btn('View', 'viewDoc', { id: d.id }, 'ghost') : ''}${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${d.status === 'received' ? btn('Accept', 'doc', { id: d.id, s: 'accepted' }) + btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost') + btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger') : ''}</div>`; };
+  const reqRow = (r) => `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(r.subject)}</div><div class="text-xs text-slate-500">due ${fmt(r.due_on)} · last reminder ${fmt(r.last_reminder_on)}</div></div>${r.status === 'received' ? badge('Received', 'green') : r.status === 'closed' ? badge('Closed', 'gray') : r.due_on && r.due_on < today ? badge('Overdue', 'red') : badge(r.status === 'reminded' ? 'Reminded' : 'Sent', 'amber')}${['sent', 'reminded'].includes(r.status) ? btn('Remind', 'remind', { id: r.id }, 'ghost') : ''}${r.status !== 'closed' ? btn('Close', 'closeReq', { id: r.id }) : ''}</div>`;
+  let body = '';
+  if (supTab === 'overview') {
+    const ctc = c.contacts[0];
+    body = `<div class="grid gap-4 lg:grid-cols-3"><div class="lg:col-span-2 space-y-4">${card('Recent documents', c.docs.slice(0, 4).map(docRow).join('') || none('No documents yet.'))}${card('Open requests', openReqs.map(reqRow).join('') || none('No open requests.'))}</div>
+      <div>${card('Details', `<dl class="p-4 text-sm space-y-2"><div><dt class="text-xs text-slate-500">Country</dt><dd>${esc(c.party.country || '-')}</dd></div><div><dt class="text-xs text-slate-500">Address</dt><dd>${esc([c.party.address_line, c.party.city, c.party.postal_code].filter(Boolean).join(', ') || '-')}</dd></div><div><dt class="text-xs text-slate-500">Contact</dt><dd>${ctc ? esc(ctc.name) + (ctc.email ? ' · ' + esc(ctc.email) : '') : 'None yet'}</dd></div><div><dt class="text-xs text-slate-500">Products</dt><dd>${c.skus.filter((k) => k.status === 'active').length} active SKUs</dd></div>${c.party.notes ? `<div><dt class="text-xs text-slate-500">Notes</dt><dd class="whitespace-pre-line">${esc(c.party.notes)}</dd></div>` : ''}</dl>`)}</div></div>`;
+  } else if (supTab === 'docs') {
+    body = `<div class="space-y-4">${card('Documents', c.docs.map(docRow).join('') || none('No documents yet.'))}${card('Requests', c.reqs.map(reqRow).join('') || none('No requests yet.'))}</div>`;
+  } else if (supTab === 'smelters') {
+    const rows = c.decls.map((d) => ({ d, i: declInfo(d) }));
+    body = card('Conflict minerals declarations', rows.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody class="divide-y divide-slate-100">${rows.map(({ d, i }) => `<tr${i.key === 'archived' ? ' class="text-slate-400"' : ''}><td class="p-3">${d.reporting_year}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${i.badge}</td><td class="p-3 text-right">${btn('Review', 'findings', { id: d.id, doc: d.document_id })}</td></tr>`).join('')}</tbody></table>` : none('No conflict minerals form has been read for this supplier yet. When one is uploaded, open it under Documents, or use Review inbox › Smelter check.'));
+  } else if (supTab === 'products') {
+    body = card('Products from this supplier', c.skus.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-slate-100">${c.skus.map((k) => `<tr><td class="p-3 font-medium">${esc(k.sku)}</td><td class="p-3">${esc(k.description || '')}</td><td class="p-3">${badge(k.status, k.status === 'active' ? 'green' : 'gray')}</td></tr>`).join('')}</tbody></table>` : none('No SKUs are linked to this supplier.'));
+  } else if (supTab === 'contacts') {
+    body = card('Contacts', (c.contacts.map((x) => `<div class="px-4 py-3 border-t border-slate-100 first:border-t-0"><div class="font-medium">${esc(x.name)}</div><div class="text-xs text-slate-500">${esc(x.email || 'no email')}</div></div>`).join('') || none('No contacts yet.')) + `<div class="px-4 py-3 border-t border-slate-200">${btn(c.contacts.length ? 'Manage contact' : 'Add contact', 'addContact', { id, name }, 'ghost')}</div>`);
+  } else {
+    const [h1, h2] = await Promise.all([sb.from('audit_log').select('*').eq('table_name', 'parties').eq('row_id', id).order('id', { ascending: false }).limit(25), sb.from('audit_log').select('*').eq('new_data->>party_id', id).order('id', { ascending: false }).limit(25)]);
+    const seen = new Set(), rows = [...(h1.data || []), ...(h2.data || [])].filter((r) => !seen.has(r.id) && seen.add(r.id)).sort((a, b) => b.id - a.id).slice(0, 25);
+    body = card('History', rows.length ? rows.map((r) => `<div class="px-4 py-3 border-t border-slate-100 first:border-t-0 text-sm"><div class="flex flex-wrap items-center gap-2"><b>${esc(auditWhen(r.at))}</b><span class="text-slate-500">${esc(auditWho(r))}</span>${badge(AUD_ACT[r.action] || r.action, r.action === 'delete' ? 'red' : r.action === 'update' ? 'amber' : 'gray')}<span class="text-slate-500">${esc(AUD_AREA[r.table_name] || r.table_name)}</span></div><div class="text-slate-600 mt-0.5">${esc(auditSummary(r))}</div></div>`).join('') + `<div class="px-4 py-3 border-t border-slate-200 text-xs text-slate-500">The latest 25 changes. The full record is under Records › Audit log.</div>` : none('No recorded changes yet.'));
+  }
+  shell(`<div class="text-xs text-slate-500 mb-2">Configuration › ${btn('Suppliers', 'nav', { v: 'suppliers' }, 'ghost').replace('px-3 py-1.5', 'px-2 py-0.5')}</div>
+    <div class="flex flex-wrap items-center gap-3"><h1 class="text-2xl font-semibold">${esc(name)}</h1>${next.tone === 'green' ? badge('In good standing', 'green') : badge('Action needed', next.tone === 'red' ? 'red' : 'amber')}${c.party.is_active === false ? badge('Inactive', 'gray') : ''}<span class="text-sm text-slate-500">${esc(c.party.country || '')} · ${c.skus.filter((k) => k.status === 'active').length} active products</span>
+      <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editSupplier', { id }, 'ghost')}${btn('Manage contact', 'addContact', { id, name }, 'ghost')}${btn('Request documents', 'reqDocs', { id, name })}</div></div>
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${scrTile}${reqTile}</div>
+    ${banner}
+    <div class="mt-5 mb-4 flex flex-wrap gap-1 border-b border-slate-200">${tabs}</div>${body}`);
 }
 
 const isCmrt = (d) => d.doc_type === 'cmrt' || (/cmrt/i.test((d.file_name || '') + ' ' + (d.title || '')) && /\.xlsx?$/i.test(d.file_name || ''));
@@ -1018,9 +1102,24 @@ async function openOrder(id) {
     : c.item === 'classification' ? btn('Classify', 'ofGoClass', {}, 'ghost')
     : ITEM_DOC[c.item] ? btn('Attach', 'uploadRecord', { tx: id, t: ITEM_DOC[c.item] }) : '';
   const row = (c) => `<tr class="border-t border-slate-100 align-top"><td class="py-2 pr-2 w-24">${c.done ? badge('Done', 'green') : badge(c.level === 'track' || c.level === 'auto' ? 'To do' : 'Missing', c.level === 'hold' ? 'red' : c.level === 'note' ? 'amber' : 'gray')}</td><td class="py-2">${esc(c.label)}${!c.done && c.detail ? `<div class="text-xs text-slate-500">${esc(c.detail)}</div>` : ''}</td><td class="py-2 px-2 text-xs text-slate-400 whitespace-nowrap">${c.level === 'auto' ? '' : LEVEL_TXT[c.level] || ''}</td><td class="py-2 text-right">${c.done ? '' : act(c)}</td></tr>`;
+  // progress strip and next step
+  const stepsDone = [!!o.screened_at, items.length > 0 && nDone === items.length, o.status === 'cleared', !!o.shipped_on];
+  const stepNames = ['Screened', 'Checklist complete', 'Cleared', 'Shipped'];
+  const strip = `<div class="mt-3 flex flex-wrap items-center gap-x-1 gap-y-1 text-xs">${stepNames.map((n, i) => `<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 ${stepsDone[i] ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}">${stepsDone[i] ? ico('check', 'h-3 w-3') : ''}${n}</span>${i < 3 ? '<span class="text-slate-300">›</span>' : ''}`).join('')}</div>`;
+  const miss = items.find((c) => !c.done && c.level === 'hold'), openNotes = items.filter((c) => !c.done && c.level === 'note').length;
+  let nx;
+  if (o.status === 'blocked') nx = { tone: 'red', title: 'This order is blocked', text: o.decision_notes || 'It cannot ship.', act: '' };
+  else if (!o.screened_at) nx = { tone: 'amber', title: 'Screen this order', text: 'Check the parties, the destination and the items.', act: btn('Screen order', 'screenOrder', { id }) };
+  else if (miss) nx = { tone: 'red', title: 'Next: ' + miss.label, text: miss.detail || 'This check holds the shipment until it is done.', act: act(miss) };
+  else if (o.status === 'hold') nx = { tone: 'red', title: 'Review the hold', text: holds[0] || 'A screening result or country rule is holding this order.', act: btn('Review matches', 'nav', { v: 'screening' }, 'ghost') + btn('Release…', 'orderDecide', { id, d: 'cleared' }) };
+  else if (o.shipped_on) nx = { tone: 'green', title: 'Shipped', text: rt.data?.keep_until ? 'Keep the records until ' + fmt(rt.data.keep_until) + '.' : 'Keep the records for the retention period.', act: '' };
+  else if (o.status === 'cleared') nx = { tone: 'green', title: 'Ready to ship', text: (openNotes ? openNotes + ' recommended item' + (openNotes > 1 ? 's are' : ' is') + ' still open. ' : '') + 'Record the ship date below once it ships.', act: '' };
+  else nx = { tone: 'amber', title: 'Screen this order again', text: 'Re-run the check to update its status.', act: btn('Re-screen', 'screenOrder', { id }) };
+  const nextBox = `<div class="mt-3 rounded-xl border-2 ${nx.tone === 'red' ? 'border-red-500 bg-red-50' : nx.tone === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'} p-3 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[14rem]"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Next step</div><div class="font-semibold">${esc(nx.title)}</div><div class="text-sm text-slate-600">${esc(nx.text)}</div></div>${nx.act}</div>`;
   modal(`<div class="flex items-center gap-3"><h3 class="text-lg font-semibold">Order ${esc(o.reference)}</h3>${badge(ORDER_LABEL[o.status], ORDER_TONE[o.status])}</div>
     <p class="text-sm text-slate-500 mt-1">${fmt(o.transaction_date)} · to ${esc(o.destination_country || '?')} ${rule ? badge(rule.level, rule.level === 'watch' ? 'amber' : 'red') : ''}${o.screened_at ? ' · screened ' + fmt(o.screened_at) : ' · not screened yet'}</p>
-    <div class="mt-3 max-h-[58vh] overflow-auto pr-1"><div class="lg:grid lg:grid-cols-2 lg:gap-8"><div>
+    ${strip}${nextBox}
+    <div class="mt-3 max-h-[50vh] overflow-auto pr-1"><div class="lg:grid lg:grid-cols-2 lg:gap-8"><div>
     ${holds.length ? `<div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-800"><b>Holds</b><ul class="list-disc pl-5 mt-1">${holds.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${notes.length ? `<div class="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900"><b>Check before shipping</b><ul class="list-disc pl-5 mt-1">${notes.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${o.decision_notes ? `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>Decision (${fmt(o.decided_at)}):</b> ${esc(o.decision_notes)}</div>` : ''}
@@ -1697,7 +1796,9 @@ const actions = {
     if (note) await sb.from('request_events').insert({ request_id: id, event_type: 'note', notes: note });
     closeModal(); toast('Request closed'); renderRequests();
   },
-  nav: ({ v, t }) => { closeNavMenu(); if (t) tradeTab = t; view = v; route(); },
+  nav: ({ v, t }) => { closeNavMenu(); if ($('#dlg').open) closeModal(); if (t) tradeTab = t; view = v; route(); },
+  openSupplier: ({ id }) => { supId = id; supTab = 'overview'; view = 'supplier'; route(); },
+  supTab: ({ v }) => { supTab = v; renderSupplier(); },
   dashAll: () => { dashFilter = null; renderToday(); },
   bell: () => { popMenu('bell', '#bellBtn', bellHtml(), 380); refreshBell(true); },
   userMenu: () => popMenu('user', '#userBtn', `<div class="px-4 py-3 border-b border-slate-200"><div class="font-semibold">${esc(profile?.full_name || user?.email || '')}</div><div class="text-xs text-slate-500 break-all">${esc(user?.email || '')}</div><div class="text-xs text-slate-500">Role: ${esc(profile?.role || '')}</div></div><button data-a="signout" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">${ico('logout')}Sign out</button>`, 260),
@@ -1946,7 +2047,7 @@ document.addEventListener('change', (e) => {
 });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { ({ today: renderToday, suppliers: renderSuppliers, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
+function route() { ({ today: renderToday, suppliers: renderSuppliers, supplier: renderSupplier, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
