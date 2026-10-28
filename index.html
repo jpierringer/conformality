@@ -45,6 +45,8 @@ main div:has(>table){overflow-x:auto}
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
 // 1.11.0 Records shows just "Audit log" when trade compliance is off. Suppliers: Import and Export (CSV) and exception filters. Every page opens with a line saying what is expected.
 //        Every dialog has an X in its corner. Government data: the "Where to update each one" section is gone; Load list is a button on the table row.
+// 1.11.2 Products (SKUs) is a Trade compliance page (menu, supplier tab and counts hide when it is off); wording is "Product (SKU)" everywhere.
+// 1.11.1 Suppliers: no Open button (the name opens it), Manage contact is merged into Edit, active SKU count only shows when Trade compliance is on.
 // 1.10.0 Layout: the Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches live on the supplier page (customer page for customers);
 //        the CMRT check is a Dashboard tile; Screen all parties and screening status are on the Suppliers and Customers lists. Records moved to the right of Configuration.
 //        The Dashboard is a set of tiles that fits the screen on a desktop; each tile scrolls.
@@ -83,7 +85,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.11.2';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -178,11 +180,11 @@ const SEP = ['--', 'Trade compliance'];
 const NAV_ALL = [
   { id: 'today', label: 'Dashboard', icon: 'dashboard', v: 'today' },
   { id: 'orders', label: 'Orders', icon: 'package', v: 'trade', t: 'orders', trade: true },
-  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['govdata', 'Government data', 'landmark'], ['skus', 'Products', 'tag'], ['features', 'Features', 'sliders'], SEP, ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['trade', 'Rules', 'sliders', 'dest']] },
+  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['govdata', 'Government data', 'landmark'], ['features', 'Features', 'sliders'], SEP, ['skus', 'Products (SKUs)', 'tag'], ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['trade', 'Rules', 'sliders', 'dest']] },
   { label: 'Records', icon: 'scroll', items: [['audit', 'Audit log', 'scroll'], SEP, ['trade', 'Customs records', 'filetext', 'records']] }
 ];
 const OLD_VIEWS = ['review', 'requests', 'minerals', 'ownership', 'screening'];   // pages that were folded into the supplier/customer pages and the Dashboard (1.10.0)
-const isTradeView = (v) => v === 'trade' || v === 'customer';
+const isTradeView = (v) => v === 'trade' || v === 'customer' || v === 'skus';
 const isScreenView = (v) => v === 'screening' || v === 'ownership';
 const viewAllowed = (v) => !(isTradeView(v) && !FEAT.trade) && !(isScreenView(v) && !FEAT.screening);
 function buildNav() {
@@ -508,12 +510,12 @@ async function renderSuppliers() {
   <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm">
     <thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Supplier</th><th class="p-3">Contact</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th><th class="p-3">Smelter flags</th>${FEAT.screening ? '<th class="p-3">Screening</th>' : ''}<th class="p-3">Open requests</th><th class="p-3">Cases</th><th class="p-3"></th></tr></thead>
     <tbody id="supBody" class="divide-y divide-slate-100">${data.map((s) => `<tr data-ex="${exOf(s).join(' ')}" data-q="${esc((s.name + ' ' + (s.country || '')).toLowerCase())}">
-      <td class="p-3 font-medium"><button data-a="openSupplier" data-id="${esc(s.party_id)}" class="text-left font-medium hover:underline">${esc(s.name)}</button><div class="text-xs text-slate-400">${esc(s.country || '')} · ${s.active_skus} active SKUs</div></td>
+      <td class="p-3 font-medium"><button data-a="openSupplier" data-id="${esc(s.party_id)}" class="text-left font-medium hover:underline">${esc(s.name)}</button><div class="text-xs text-slate-400">${esc(s.country || '')}${FEAT.trade ? ` · ${s.active_skus} active products (SKUs)` : ''}</div></td>
       <td class="p-3">${contactOf.has(s.party_id) ? `${esc(contactOf.get(s.party_id).name)}<div class="text-xs text-slate-400">${esc(contactOf.get(s.party_id).email || '')}</div>` : '<span class="text-slate-400">None yet</span>'}</td>
       <td class="p-3">${cmrt(s)}</td><td class="p-3">${fmt(s.valid_until)}</td>
       <td class="p-3">${s.flagged_smelters > 0 ? badge(s.flagged_smelters + ' flagged', 'red') : badge('None', 'green')}</td>
       ${FEAT.screening ? `<td class="p-3">${scrBadge(s.party_id)}</td>` : ''}<td class="p-3">${s.open_requests}</td><td class="p-3">${s.open_cases}</td>
-      <td class="p-3 text-right whitespace-nowrap">${btn('Open', 'openSupplier', { id: s.party_id }, 'ghost')} ${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Manage contact', 'addContact', { id: s.party_id, name: s.name }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
+      <td class="p-3 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: s.party_id }, 'ghost')} ${btn('Request documents', 'reqDocs', { id: s.party_id, name: s.name })}</td></tr>`).join('') || '<tr><td class="p-8 text-center text-slate-500" colspan="8">No suppliers yet.</td></tr>'}
     </tbody></table></div>
   ${inactive.length ? `<details class="mt-4 rounded-xl bg-white border border-slate-200 p-3"><summary class="text-sm font-medium cursor-pointer">Inactive suppliers (${inactive.length})</summary>
     <table class="w-full text-sm mt-2"><tbody class="divide-y divide-slate-100">${inactive.map((i) => `<tr class="text-slate-500"><td class="p-2 font-medium">${esc(i.name)}<div class="text-xs text-slate-400">${esc(i.country || '')}${i.notes ? ' · ' + esc(String(i.notes).split('\n').pop()) : ''}</div></td><td class="p-2 text-right whitespace-nowrap">${btn('Edit', 'editSupplier', { id: i.id }, 'ghost')} ${btn('Reactivate', 'supplierActive', { id: i.id, on: '1' }, 'ghost')}</td></tr>`).join('')}</tbody></table></details>` : ''}`);
@@ -540,7 +542,7 @@ async function screeningPanel(partyId, ps) {
 
 // ---- supplier page: status, next step, and tabs --------------------------------------------------
 let supId = null, supTab = 'overview';
-const SUP_TABS = [['overview', 'Overview', 'eye'], ['docs', 'Documents & requests', 'filetext'], ['smelters', 'Smelters', 'gem'], ['screening', 'Screening', 'shield'], ['products', 'Products', 'tag'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
+const SUP_TABS = [['overview', 'Overview', 'eye'], ['docs', 'Documents & requests', 'filetext'], ['smelters', 'Smelters', 'gem'], ['screening', 'Screening', 'shield'], ['products', 'Products (SKUs)', 'tag'], ['contacts', 'Contacts', 'user'], ['history', 'History', 'clock']];
 const daysUntil = (d) => d ? Math.round((new Date(d + 'T12:00:00') - new Date(todayStr() + 'T12:00:00')) / 864e5) : null;
 const DOC_STATUS = { received: ['Waiting for review', 'amber'], accepted: ['Accepted', 'green'], accepted_with_gaps: ['Accepted with gaps', 'amber'], rejected: ['Rejected', 'red'] };
 function supNext(c) {
@@ -552,7 +554,7 @@ function supNext(c) {
   if (waiting) return { tone: 'amber', title: `Review ${waiting} document${waiting > 1 ? 's' : ''} waiting`, text: 'The supplier sent something that needs a decision.', act: btn('Review documents', 'supTab', { v: 'docs' }) };
   if (flagged) return { tone: 'red', title: `Review ${flagged} flagged smelter${flagged > 1 ? 's' : ''}`, text: 'Decide whether to accept each one, ask the supplier, or mark it as not used.', act: btn('Review smelters', 'supTab', { v: 'smelters' }) };
   if (FEAT.screening && ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'supTab', { v: 'screening' }) };
-  if (!contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'Requests go to a named person.', act: btn('Manage contact', 'addContact', { id, name }) };
+  if (!contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'Requests go to a named person.', act: btn('Edit', 'editSupplier', { id }) };
   if (!st?.cmrt_status || st.cmrt_expired) return { tone: 'red', title: 'Request a conflict minerals form', text: st?.cmrt_status ? 'The last form has expired.' : 'No form on file yet.', act: btn('Request documents', 'reqDocs', { id, name }) };
   if (overdue.length) return { tone: 'amber', title: `${overdue.length} request${overdue.length > 1 ? 's are' : ' is'} overdue`, text: 'Send a reminder.', act: btn('See requests', 'supTab', { v: 'docs' }) };
   if (left !== null && left <= 30) return { tone: 'amber', title: 'Ask for a renewed conflict minerals form', text: `The current form expires in ${left} day${left === 1 ? '' : 's'}.`, act: btn('Request documents', 'reqDocs', { id, name }) };
@@ -589,7 +591,7 @@ async function renderSupplier() {
     : c.ps && c.ps.last_screened_at ? tile('Restricted party screening', 'Clear', badge('Screened ' + fmt(c.ps.last_screened_at), 'green'), '') : tile('Restricted party screening', 'Not screened', badge('Screen now', 'amber'), '');
   const reqTile = tile('Open requests', openReqs.length ? `${openReqs.length} open` : 'None', overdueReqs.length ? badge(overdueReqs.length + ' overdue', 'red') : badge(openReqs.length ? 'On track' : 'All done', openReqs.length ? 'gray' : 'green'), '');
   const banner = `<div class="mt-4 rounded-xl border-2 ${next.tone === 'red' ? 'border-red-500 bg-red-50' : next.tone === 'amber' ? 'border-amber-400 bg-amber-50' : 'border-emerald-400 bg-emerald-50'} p-4 flex flex-wrap items-center gap-3"><div class="flex-1 min-w-[16rem]"><div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Next step</div><div class="text-lg font-semibold">${esc(next.title)}</div><div class="text-sm text-slate-600">${esc(next.text)}</div></div>${next.act}</div>`;
-  const tabs = SUP_TABS.filter(([k]) => FEAT.screening || k !== 'screening').map(([k, l, ic]) => { const scrN = (c.ps ? (c.ps.open_hits || 0) + (c.ps.confirmed_hits || 0) : 0) + c.own.length; const n = k === 'screening' && scrN ? ` ${badge(String(scrN), 'red')}` : k === 'smelters' && flagged ? ` ${badge(String(flagged), 'red')}` : k === 'docs' && c.docs.some((d) => d.status === 'received') ? ` ${badge(String(c.docs.filter((d) => d.status === 'received').length), 'amber')}` : ''; return `<button data-a="supTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${supTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${n}</button>`; }).join('');
+  const tabs = SUP_TABS.filter(([k]) => (FEAT.screening || k !== 'screening') && (FEAT.trade || k !== 'products')).map(([k, l, ic]) => { const scrN = (c.ps ? (c.ps.open_hits || 0) + (c.ps.confirmed_hits || 0) : 0) + c.own.length; const n = k === 'screening' && scrN ? ` ${badge(String(scrN), 'red')}` : k === 'smelters' && flagged ? ` ${badge(String(flagged), 'red')}` : k === 'docs' && c.docs.some((d) => d.status === 'received') ? ` ${badge(String(c.docs.filter((d) => d.status === 'received').length), 'amber')}` : ''; return `<button data-a="supTab" data-v="${k}" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 -mb-px ${supTab === k ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-600 hover:text-slate-900'}">${ico(ic)}${l}${n}</button>`; }).join('');
   const card = (t, inner) => `<div class="rounded-xl bg-white border border-slate-200"><div class="px-4 py-3 border-b border-slate-200 font-semibold">${t}</div>${inner}</div>`;
   const none = (t) => `<p class="p-5 text-sm text-slate-500">${t}</p>`;
   const docRow = (d) => { const [t, tone] = DOC_STATUS[d.status] || [d.status, 'gray']; return `<div class="px-4 py-3 flex flex-wrap items-center gap-3 border-t border-slate-100 first:border-t-0"><div class="flex-1 min-w-[12rem]"><div class="font-medium">${esc(d.title)}</div><div class="text-xs text-slate-500">${esc(d.doc_type)} · received ${fmt(d.created_at)}${d.valid_until ? ' · valid until ' + fmt(d.valid_until) : ''}</div></div>${badge(t, tone)}${isCmrt(d) ? btn('View', 'viewDoc', { id: d.id }, 'ghost') : ''}${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}${d.status === 'received' ? btn('Accept', 'doc', { id: d.id, s: 'accepted' }) + btn('Accept with gaps', 'doc', { id: d.id, s: 'accepted_with_gaps' }, 'ghost') + btn('Reject', 'doc', { id: d.id, s: 'rejected' }, 'danger') : ''}</div>`; };
@@ -598,7 +600,7 @@ async function renderSupplier() {
   if (supTab === 'overview') {
     const ctc = c.contacts[0];
     body = `<div class="grid gap-4 lg:grid-cols-3"><div class="lg:col-span-2 space-y-4">${card('Recent documents', c.docs.slice(0, 4).map(docRow).join('') || none('No documents yet.'))}${card('Open requests', openReqs.map(reqRow).join('') || none('No open requests.'))}</div>
-      <div>${card('Details', `<dl class="p-4 text-sm space-y-2"><div><dt class="text-xs text-slate-500">Country</dt><dd>${esc(c.party.country || '-')}</dd></div><div><dt class="text-xs text-slate-500">Address</dt><dd>${esc([c.party.address_line, c.party.city, c.party.postal_code].filter(Boolean).join(', ') || '-')}</dd></div><div><dt class="text-xs text-slate-500">Contact</dt><dd>${ctc ? esc(ctc.name) + (ctc.email ? ' · ' + esc(ctc.email) : '') : 'None yet'}</dd></div><div><dt class="text-xs text-slate-500">Products</dt><dd>${c.skus.filter((k) => k.status === 'active').length} active SKUs</dd></div>${c.party.notes ? `<div><dt class="text-xs text-slate-500">Notes</dt><dd class="whitespace-pre-line">${esc(c.party.notes)}</dd></div>` : ''}</dl>`)}</div></div>`;
+      <div>${card('Details', `<dl class="p-4 text-sm space-y-2"><div><dt class="text-xs text-slate-500">Country</dt><dd>${esc(c.party.country || '-')}</dd></div><div><dt class="text-xs text-slate-500">Address</dt><dd>${esc([c.party.address_line, c.party.city, c.party.postal_code].filter(Boolean).join(', ') || '-')}</dd></div><div><dt class="text-xs text-slate-500">Contact</dt><dd>${ctc ? esc(ctc.name) + (ctc.email ? ' · ' + esc(ctc.email) : '') : 'None yet'}</dd></div>${FEAT.trade ? `<div><dt class="text-xs text-slate-500">Products (SKUs)</dt><dd>${c.skus.filter((k) => k.status === 'active').length} active</dd></div>` : ''}${c.party.notes ? `<div><dt class="text-xs text-slate-500">Notes</dt><dd class="whitespace-pre-line">${esc(c.party.notes)}</dd></div>` : ''}</dl>`)}</div></div>`;
   } else if (supTab === 'docs') {
     body = `<div class="space-y-4">${card('Documents', c.docs.map(docRow).join('') || none('No documents yet.'))}${card('Requests', c.reqs.map(reqRow).join('') || none('No requests yet.'))}</div>`;
   } else if (supTab === 'smelters') {
@@ -606,8 +608,8 @@ async function renderSupplier() {
     body = card('Conflict minerals declarations', rows.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Year</th><th class="p-3">Scope</th><th class="p-3">Smelters</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody class="divide-y divide-slate-100">${rows.map(({ d, i }) => `<tr${i.key === 'archived' ? ' class="text-slate-400"' : ''}><td class="p-3">${d.reporting_year}${d.is_complete ? '' : `<div class="text-xs text-amber-700">${esc(d.completeness_notes || 'Incomplete')}</div>`}</td><td class="p-3">${esc((d.declaration_scope || 'unknown').replace('_', ' '))}</td><td class="p-3">${d.smelters.length}</td><td class="p-3">${i.badge}</td><td class="p-3 text-right">${btn('Review', 'findings', { id: d.id, doc: d.document_id })}</td></tr>`).join('')}</tbody></table>` : none('No conflict minerals form has been read for this supplier yet. When one is uploaded, open it under Documents, or use the CMRT check tile on the Dashboard.'));
   } else if (supTab === 'screening' && FEAT.screening) {
     body = await screeningPanel(id, c.ps);
-  } else if (supTab === 'products') {
-    body = card('Products from this supplier', c.skus.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-slate-100">${c.skus.map((k) => `<tr><td class="p-3 font-medium">${esc(k.sku)}</td><td class="p-3">${esc(k.description || '')}</td><td class="p-3">${badge(k.status, k.status === 'active' ? 'green' : 'gray')}</td></tr>`).join('')}</tbody></table>` : none('No SKUs are linked to this supplier.'));
+  } else if (supTab === 'products' && FEAT.trade) {
+    body = card('Products (SKUs) from this supplier', c.skus.length ? `<table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Product (SKU)</th><th class="p-3">Description</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-slate-100">${c.skus.map((k) => `<tr><td class="p-3 font-medium">${esc(k.sku)}</td><td class="p-3">${esc(k.description || '')}</td><td class="p-3">${badge(k.status, k.status === 'active' ? 'green' : 'gray')}</td></tr>`).join('')}</tbody></table>` : none('No products (SKUs) are linked to this supplier.'));
   } else if (supTab === 'contacts') {
     body = card('Contacts', (c.contacts.map((x) => `<div class="px-4 py-3 border-t border-slate-100 first:border-t-0"><div class="font-medium">${esc(x.name)}</div><div class="text-xs text-slate-500">${esc(x.email || 'no email')}</div></div>`).join('') || none('No contacts yet.')) + `<div class="px-4 py-3 border-t border-slate-200">${btn(c.contacts.length ? 'Manage contact' : 'Add contact', 'addContact', { id, name }, 'ghost')}</div>`);
   } else {
@@ -617,7 +619,7 @@ async function renderSupplier() {
   }
   shell(`<div class="text-xs text-slate-500 mb-2">Configuration › ${btn('Suppliers', 'nav', { v: 'suppliers' }, 'ghost').replace('px-3 py-1.5', 'px-2 py-0.5')}</div>
     <div class="flex flex-wrap items-center gap-3"><h1 class="text-2xl font-semibold">${esc(name)}</h1>${next.tone === 'green' ? badge('In good standing', 'green') : badge('Action needed', next.tone === 'red' ? 'red' : 'amber')}${c.party.is_active === false ? badge('Inactive', 'gray') : ''}<span class="text-sm text-slate-500">${esc(c.party.country || '')} · ${c.skus.filter((k) => k.status === 'active').length} active products</span>
-      <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editSupplier', { id }, 'ghost')}${btn('Manage contact', 'addContact', { id, name }, 'ghost')}${btn('Request documents', 'reqDocs', { id, name })}</div></div>
+      <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editSupplier', { id }, 'ghost')}${btn('Request documents', 'reqDocs', { id, name })}</div></div>
     <p class="mt-3 text-sm text-slate-500">Everything about this supplier. Expected: a contact on file, a current conflict minerals form with no flagged smelters, no overdue requests${FEAT.screening ? ' and a clear restricted party screening' : ''}. The Next step box shows what to do first.</p>
     <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${FEAT.screening ? scrTile : ''}${reqTile}</div>
     ${banner}
@@ -759,11 +761,11 @@ async function renderSkus() {
   loading();
   const { data, error } = await sb.from('v_sku_trace').select('*').order('sku');
   if (error) return fail(error);
-  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Products</h2><span class="text-sm text-slate-500">${data.length} total</span><p class="basis-full text-sm text-slate-500 -mt-1">The SKUs we sell, each linked to the supplier that makes it. Expected: every active SKU has a supplier, so its conflict minerals form and its classification can be tracked.</p>
-    <input id="skuQ" placeholder="Search SKU, description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64 xl:w-96">
-    <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add SKU', 'addSku')}</div>
-  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
-  <tbody id="skuBody" class="divide-y divide-slate-100">${data.map((s) => `<tr><td class="p-3 font-medium">${esc(s.sku)}</td><td class="p-3">${esc(s.description || '')}</td><td class="p-3">${esc(s.supplier_name)}</td><td class="p-3">${cmrtBadge(s)}</td><td class="p-3">${fmt(s.valid_until)}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No SKUs yet. Add one, or import a CSV with columns: sku, description, supplier.</td></tr>'}</tbody></table></div>`);
+  shell(`<div class="flex flex-wrap items-center gap-3 mb-4"><h2 class="text-xl font-semibold">Products (SKUs)</h2><span class="text-sm text-slate-500">${data.length} total</span><p class="basis-full text-sm text-slate-500 -mt-1">The products (SKUs) we sell, each linked to the supplier that makes it. Expected: every active product (SKU) has a supplier, so its conflict minerals form and its classification can be tracked.</p>
+    <input id="skuQ" placeholder="Search product (SKU), description, supplier" class="ml-auto rounded-lg border border-slate-300 p-2 text-sm w-64 xl:w-96">
+    <label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import CSV<input id="skuCsv" type="file" accept=".csv" class="hidden"></label>${btn('+ Add product (SKU)', 'addSku')}</div>
+  <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Product (SKU)</th><th class="p-3">Description</th><th class="p-3">Supplier</th><th class="p-3">Conflict minerals</th><th class="p-3">Valid until</th></tr></thead>
+  <tbody id="skuBody" class="divide-y divide-slate-100">${data.map((s) => `<tr><td class="p-3 font-medium">${esc(s.sku)}</td><td class="p-3">${esc(s.description || '')}</td><td class="p-3">${esc(s.supplier_name)}</td><td class="p-3">${cmrtBadge(s)}</td><td class="p-3">${fmt(s.valid_until)}</td></tr>`).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-500">No products (SKUs) yet. Add one, or import a CSV with columns: sku, description, supplier.</td></tr>'}</tbody></table></div>`);
   $('#skuQ').oninput = (e) => { const q = e.target.value.toLowerCase(); document.querySelectorAll('#skuBody tr').forEach((tr) => { tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none'; }); };
   $('#skuCsv').onchange = (e) => importSkus(e.target.files[0]);
 }
@@ -777,7 +779,7 @@ async function importSkus(file) {
   const head = splitCsv(lines[0] || '').map((h) => h.toLowerCase().replace(/[^a-z]/g, ''));
   const ix = (keys) => head.findIndex((h) => keys.includes(h));
   const iS = ix(['sku', 'partnumber', 'item']), iD = ix(['description', 'desc']), iP = ix(['supplier', 'vendor', 'manufacturer']), iN = ix(['supplierpartnumber', 'supplierpn', 'mpn']);
-  if (iS < 0 || iP < 0) return toast('The CSV needs "sku" and "supplier" columns.');
+  if (iS < 0 || iP < 0) return toast('The CSV needs "sku" (product) and "supplier" columns.');
   const rows = [], bad = new Set();
   for (const l of lines.slice(1)) {
     const c = splitCsv(l), sku = (c[iS] || '').trim(); if (!sku) continue;
@@ -788,11 +790,11 @@ async function importSkus(file) {
   let done = 0;
   for (let i = 0; i < rows.length; i += 100) {
     const r = await sb.from('skus').upsert(rows.slice(i, i + 100), { onConflict: 'sku' });
-    if (r.error) return modal(`<p class="text-red-600 text-sm">${esc(r.error.message)}</p><p class="text-sm mt-2">${done} SKUs were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+    if (r.error) return modal(`<p class="text-red-600 text-sm">${esc(r.error.message)}</p><p class="text-sm mt-2">${done} products (SKUs) were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
     done += Math.min(100, rows.length - i);
   }
-  if (bad.size) modal(`<h3 class="text-lg font-semibold">${done} SKUs saved</h3><p class="text-sm text-slate-600 mt-2">These supplier names did not match a supplier exactly, so their rows were skipped. Add the supplier or fix the spelling and import again:</p><ul class="mt-2 text-sm list-disc pl-5">${[...bad].map((b) => `<li>${esc(b)}</li>`).join('')}</ul><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
-  else toast(`${done} SKUs saved`);
+  if (bad.size) modal(`<h3 class="text-lg font-semibold">${done} products (SKUs) saved</h3><p class="text-sm text-slate-600 mt-2">These supplier names did not match a supplier exactly, so their rows were skipped. Add the supplier or fix the spelling and import again:</p><ul class="mt-2 text-sm list-disc pl-5">${[...bad].map((b) => `<li>${esc(b)}</li>`).join('')}</ul><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
+  else toast(`${done} products (SKUs) saved`);
   renderSkus();
 }
 
@@ -1214,13 +1216,13 @@ async function tradeClass() {
   const card = (l, v, tone) => `<div class="rounded-xl bg-white border border-slate-200 p-3"><div class="text-xs text-slate-500">${l}</div><div class="text-2xl font-semibold ${tone || ''}">${v}</div></div>`;
   const f = tradeF, vis = rows.map((r, i) => ({ r, s: st[i] })).filter(({ r, s }) => (!f.st || (f.st === 'itar' ? r.jurisdiction === 'ITAR' : f.st === 'draft' ? !!r.draft_id : s.k === f.st)) && (!f.q || [r.sku, r.description, r.supplier_name, r.eccn, r.hts_code].join(' ').toLowerCase().includes(f.q.toLowerCase())));
   return {
-    html: `<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">${card('Active SKUs', rows.length)}${card('Unclassified', cnt('none'), cnt('none') ? 'text-red-600' : 'text-emerald-600')}${card('Drafts to approve', rows.filter((r) => r.draft_id).length, 'text-amber-600')}${card('Reviews due', cnt('review'), cnt('review') ? 'text-amber-600' : '')}${card('ITAR items', itar, itar ? 'text-red-600' : '')}</div>
-    <div class="flex flex-wrap items-center gap-2 mb-3"><input id="tcQ" value="${esc(f.q)}" placeholder="Search SKU, supplier, ECCN, HTS" class="rounded-lg border border-slate-300 p-2 text-sm w-64">
+    html: `<div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">${card('Active products (SKUs)', rows.length)}${card('Unclassified', cnt('none'), cnt('none') ? 'text-red-600' : 'text-emerald-600')}${card('Drafts to approve', rows.filter((r) => r.draft_id).length, 'text-amber-600')}${card('Reviews due', cnt('review'), cnt('review') ? 'text-amber-600' : '')}${card('ITAR items', itar, itar ? 'text-red-600' : '')}</div>
+    <div class="flex flex-wrap items-center gap-2 mb-3"><input id="tcQ" value="${esc(f.q)}" placeholder="Search product (SKU), supplier, ECCN, HTS" class="rounded-lg border border-slate-300 p-2 text-sm w-64">
       <select id="tcS" class="rounded-lg border border-slate-300 p-2 text-sm">${[['', 'All'], ['none', 'Unclassified'], ['draft', 'Drafts to approve'], ['review', 'Review due'], ['ok', 'Approved'], ['itar', 'ITAR']].map(([v, l]) => `<option value="${v}" ${f.st === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <div class="ml-auto flex gap-2"><label class="rounded-lg px-3 py-1.5 text-sm font-medium border border-slate-300 hover:bg-slate-100 cursor-pointer">Import classifications (CSV)<input id="tcCsv" type="file" accept=".csv" class="hidden"></label></div></div>
-    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">SKU</th><th class="p-3">Supplier</th><th class="p-3">Export control</th><th class="p-3">HTS</th><th class="p-3">Origin</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Product (SKU)</th><th class="p-3">Supplier</th><th class="p-3">Export control</th><th class="p-3">HTS</th><th class="p-3">Origin</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead>
     <tbody class="divide-y divide-slate-100">${vis.map(({ r, s }) => `<tr><td class="p-3 font-medium">${esc(r.sku)}<div class="text-xs text-slate-400 font-normal">${esc((r.description || '').slice(0, 60))}</div></td><td class="p-3">${esc(r.supplier_name)}</td><td class="p-3">${controlBadge(r)}</td><td class="p-3 font-mono text-xs">${esc(r.hts_code || '')}</td><td class="p-3">${esc(r.country_of_origin || '')}</td><td class="p-3">${s.b}${r.draft_id && r.cur_id ? '<div class="text-xs text-amber-700">new version in draft</div>' : ''}</td>
-      <td class="p-3 text-right whitespace-nowrap">${r.draft_id ? btn('Approve', 'approveClass', { id: r.draft_id, sku: r.sku }) + ' ' : ''}${btn(r.draft_id ? 'Edit draft' : r.cur_id ? 'New version' : 'Classify', 'classify', { id: r.sku_id }, 'ghost')} ${r.cur_id || r.draft_id ? btn('History', 'classHist', { id: r.sku_id }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No SKUs match.</td></tr>'}</tbody></table></div>
+      <td class="p-3 text-right whitespace-nowrap">${r.draft_id ? btn('Approve', 'approveClass', { id: r.draft_id, sku: r.sku }) + ' ' : ''}${btn(r.draft_id ? 'Edit draft' : r.cur_id ? 'New version' : 'Classify', 'classify', { id: r.sku_id }, 'ghost')} ${r.cur_id || r.draft_id ? btn('History', 'classHist', { id: r.sku_id }, 'ghost') : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="p-8 text-center text-slate-500">No products (SKUs) match.</td></tr>'}</tbody></table></div>
     <p class="text-xs text-slate-500 mt-3">An approved classification cannot be edited, only replaced by a new version, so the history is evidence. Jurisdiction is decided first (EAR or ITAR). ITAR determinations can only be approved by an admin.</p>`,
     bind: () => { $('#tcQ').oninput = (e) => { tradeF.q = e.target.value; clearTimeout(tradeF.t); tradeF.t = setTimeout(renderTrade, 300); }; $('#tcS').onchange = (e) => { tradeF.st = e.target.value; renderTrade(); }; $('#tcCsv').onchange = (e) => { importClass(e.target.files[0]); e.target.value = ''; }; if (tradeF.q) { const q = $('#tcQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
   };
@@ -1297,7 +1299,7 @@ async function importClass(file) {
     rows.push({ sku_id: id, status: 'under_review', requested_on: todayIso(), jurisdiction: ['EAR', 'ITAR', 'EU'].includes(jur) ? jur : jur ? 'other' : null, eccn: g(iE), usml_category: g(iU), hts_code: g(iH), country_of_origin: /^[A-Z]{2}$/.test(coo) ? coo : null, source: SRC.has(src) ? src : null, rationale: g(iR) });
   }
   let n = 0; for (let i = 0; i < rows.length; i += 100) { const r = await sb.from('classifications').insert(rows.slice(i, i + 100)); if (r.error) return modal(`<p class="text-sm text-red-700">${esc(r.error.message)}</p><p class="text-sm mt-2">${n} drafts were saved before the error.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`); n += Math.min(100, rows.length - i); }
-  modal(`<h3 class="text-lg font-semibold">${n} draft${n === 1 ? '' : 's'} created</h3><p class="text-sm text-slate-600 mt-2">They are drafts, not approvals. Open each one to add the rationale and approve it.</p>${bad.length ? `<p class="text-xs text-amber-700 mt-2">Skipped, no matching SKU: ${esc([...new Set(bad)].slice(0, 20).join(', '))}</p>` : ''}<div class="mt-4 text-right">${btn('OK', 'close')}</div>`); renderTrade();
+  modal(`<h3 class="text-lg font-semibold">${n} draft${n === 1 ? '' : 's'} created</h3><p class="text-sm text-slate-600 mt-2">They are drafts, not approvals. Open each one to add the rationale and approve it.</p>${bad.length ? `<p class="text-xs text-amber-700 mt-2">Skipped, no matching product (SKU): ${esc([...new Set(bad)].slice(0, 20).join(', '))}</p>` : ''}<div class="mt-4 text-right">${btn('OK', 'close')}</div>`); renderTrade();
 }
 
 // ---- orders -------------------------------------------------------------------------------
@@ -1334,7 +1336,7 @@ async function newOrderModal() {
     <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
     <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Create order', 'saveOrder')}</div>`, true);
 }
-const lineRow = () => `<div class="flex gap-2 mt-2 oLine"><input list="skuList" class="lnSku flex-1 rounded-lg border border-slate-300 p-2 text-sm" placeholder="SKU"><input type="number" min="1" value="1" class="lnQty w-24 rounded-lg border border-slate-300 p-2 text-sm"></div>`;
+const lineRow = () => `<div class="flex gap-2 mt-2 oLine"><input list="skuList" class="lnSku flex-1 rounded-lg border border-slate-300 p-2 text-sm" placeholder="Product (SKU)"><input type="number" min="1" value="1" class="lnQty w-24 rounded-lg border border-slate-300 p-2 text-sm"></div>`;
 async function saveOrderForm() {
   const val = (id) => $(id).value.trim(), ref = val('#oRef'), dest = val('#oDest').toUpperCase(), cust = val('#oCust');
   if (!ref) return ($('#fErr').textContent = 'Enter the order number.');
@@ -1345,7 +1347,7 @@ async function saveOrderForm() {
     const code = row.querySelector('.lnSku').value.trim(); if (!code) continue; const id = window.__skuMap.get(code.toLowerCase());
     if (!id) { unknown.push(code); continue; } lines.set(id, (lines.get(id) || 0) + (Number(row.querySelector('.lnQty').value) || 1));
   }
-  if (unknown.length) return ($('#fErr').textContent = 'Unknown SKU: ' + unknown.join(', '));
+  if (unknown.length) return ($('#fErr').textContent = 'Unknown product (SKU): ' + unknown.join(', '));
   if (!lines.size) return ($('#fErr').textContent = 'Add at least one item.');
   const t = await sb.from('transactions').insert({ reference: ref, transaction_date: val('#oDate') || todayIso(), destination_country: dest }).select('id').single();
   if (t.error) return ($('#fErr').textContent = /duplicate|unique/i.test(t.error.message) ? 'That order number already exists.' : t.error.message);
@@ -1416,7 +1418,7 @@ async function openOrder(id) {
     ${notes.length ? `<div class="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900"><b>Check before shipping</b><ul class="list-disc pl-5 mt-1">${notes.map((h) => `<li>${esc(h)}</li>`).join('')}</ul></div>` : ''}
     ${o.decision_notes ? `<div class="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm"><b>Decision (${fmt(o.decided_at)}):</b> ${esc(o.decision_notes)}</div>` : ''}
     <h4 class="font-semibold mt-4">Parties</h4><table class="w-full text-sm mt-1"><tbody>${o.parties.map((p) => `<tr class="border-t border-slate-100"><td class="py-1.5 text-slate-500 w-32">${esc(ROLE[p.role] || p.role)}</td><td>${esc(p.party?.name)}</td><td>${esc(p.party?.country || '')}</td></tr>`).join('')}</tbody></table>
-    <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">SKU</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table>
+    <h4 class="font-semibold mt-4">Items</h4><table class="w-full text-sm mt-1"><thead class="text-left text-slate-500"><tr><th class="py-1">Product (SKU)</th><th>Qty</th><th>Export control</th><th>HTS</th><th>Origin</th></tr></thead><tbody>${o.lines.map((l) => { const c = cm.get(l.sku_id) || {}; return `<tr class="border-t border-slate-100"><td class="py-1.5">${esc(l.sku?.sku)}</td><td>${l.quantity}</td><td>${c.cur_id ? controlBadge(c) : badge('Not classified', 'red')}</td><td class="font-mono text-xs">${esc(c.hts_code || '')}</td><td>${esc(c.country_of_origin || '')}</td></tr>`; }).join('')}</tbody></table>
 
     </div><div>
     <div class="flex flex-wrap items-center gap-2 mt-6 lg:mt-0"><h4 class="font-semibold">Order file</h4><span class="text-xs text-slate-500">${nDone} of ${items.length} complete${dc.data && rt.data?.keep_until ? ' · keep records until ' + fmt(rt.data.keep_until) : ''}</span><div class="ml-auto flex gap-2">${btn('Download order file', 'ofZip', { id }, 'ghost')}${btn('Print', 'ofPrint', { id }, 'ghost')}</div></div>
@@ -1707,7 +1709,7 @@ function orderFileHtml(d) {
   <p>Generated ${esc(d.when.toLocaleString())} from Conformality v${esc(APP_VERSION)}. Status: <b>${esc(ORDER_LABEL[o.status] || o.status)}</b>${o.decision_notes ? `. Decision: ${esc(o.decision_notes)}` : ''}</p>
   <table>${tr(['Order date', fmt(o.transaction_date)])}${tr(['Destination', esc(o.destination_country || '')])}${tr(['Customer PO', esc(o.customer_po || '')])}${tr(['Shipped on (or end of transaction)', o.shipped_on ? fmt(o.shipped_on) : 'not recorded'])}${tr(['Keep records until', d.keep ? fmt(d.keep) : ''])}${tr(['Government contract', o.gov_contract ? 'Yes' + (o.taa_required ? ', TAA required' : '') + (o.baa_required ? ', BAA required' : '') + (o.far_part12_verified ? ', FAR Part 12 verified ' + fmt(o.far_part12_at) : ', FAR Part 12 not verified') : 'No'])}</table>
   <h2>Parties</h2><table>${th(['Role', 'Name', 'Country', 'Address'])}<tbody>${d.parties.map((p) => tr([esc(ROLE[p.role] || p.role), esc(p.party.name), esc(p.party.country || ''), esc([p.party.address_line, p.party.city].filter(Boolean).join(', '))])).join('')}</tbody></table>
-  <h2>1. Product classification record</h2><table>${th(['SKU', 'Qty', 'Export control', 'HTS', 'Origin', 'Classification', 'Source', 'Approved'])}<tbody>${d.lines.map((l) => tr([esc(l.sku?.sku), l.quantity, esc(ctl(l.cls)), esc(l.cls?.hts_code || ''), esc(l.cls?.country_of_origin || ''), l.cls ? 'v' + l.cls.version + (l.snapshot ? ' (as screened)' : ' (current, order not screened)') : '', esc((l.cls?.source || '').replace(/_/g, ' ')), l.cls?.approved_on ? fmt(l.cls.approved_on) : ''])).join('')}</tbody></table>
+  <h2>1. Product classification record</h2><table>${th(['Product (SKU)', 'Qty', 'Export control', 'HTS', 'Origin', 'Classification', 'Source', 'Approved'])}<tbody>${d.lines.map((l) => tr([esc(l.sku?.sku), l.quantity, esc(ctl(l.cls)), esc(l.cls?.hts_code || ''), esc(l.cls?.country_of_origin || ''), l.cls ? 'v' + l.cls.version + (l.snapshot ? ' (as screened)' : ' (current, order not screened)') : '', esc((l.cls?.source || '').replace(/_/g, ' ')), l.cls?.approved_on ? fmt(l.cls.approved_on) : ''])).join('')}</tbody></table>
   ${d.lines.filter((l) => l.cls?.rationale).map((l) => `<p class="small"><b>${esc(l.sku?.sku)}:</b> ${esc(l.cls.rationale.slice(0, 500))}</p>`).join('')}
   <h2>2. Screening record</h2><table>${th(['Party', 'Last screened', 'Result', 'List used (loaded, entries, file fingerprint)'])}<tbody>${d.parties.map((p) => { const s = d.lastScr.get(p.party.id), l = s ? d.listAt(s.screened_at) : null; return tr([esc(p.party.name), s ? esc(new Date(s.screened_at).toLocaleString()) : 'Never', s ? esc(s.result.replace('_', ' ')) : '', l ? `${esc(l.list_code)} ${fmt(l.loaded_at)}, ${(l.row_count || 0).toLocaleString()} entries<br><span class="mono">${esc(l.file_sha256 || '')}</span>` : '']); }).join('')}</tbody></table>
   <p class="small">Screened against the US Consolidated Screening List (OFAC, BIS, State). Each load keeps the original file and its fingerprint in the app.</p>
@@ -1741,7 +1743,7 @@ async function ofZip(id) {
 }
 
 // ---- audit trail ---------------------------------------------------------------
-const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'SKU', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Order', transaction_lines: 'Order item', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
+const AUD_AREA = { documents: 'Document', parties: 'Party', party_contacts: 'Contact', skus: 'Product (SKU)', cases: 'Case', case_events: 'Case note', requests: 'Request', request_events: 'Request event', request_campaigns: 'Request campaign', cmrt_declarations: 'CMRT declaration', cmrt_smelters: 'CMRT smelter', reference_list_loads: 'Reference list load', classifications: 'Classification', ownership_links: 'Ownership link', ownership_submissions: 'Ownership submission', portal_links: 'Portal link', portal_events: 'Portal visit', published_reports: 'Customer report', profiles: 'User account', app_settings: 'Setting', document_types: 'Document type', screening_runs: 'Screening run', screenings: 'Screening', screening_hits: 'Screening hit', screening_clearances: 'Screening clearance', transactions: 'Order', transaction_lines: 'Order item', transaction_parties: 'Transaction party', country_rules: 'Country rule', rule_profiles: 'Rule profile' };
 const AUD_ACT = { insert: 'Created', update: 'Changed', delete: 'Deleted' };
 let auditF = { from: '', to: '', area: '', action: '', q: '' }, auditRows = [];
 const auditLabel = (r) => { const d = r.new_data || r.old_data || {}; return d.title || d.name || d.subject || d.sku || d.matched_name || d.reference || d.email || d.key || d.code || d.file_name || (d.case_no ? '#' + d.case_no : '') || ''; };
@@ -2063,8 +2065,8 @@ const actions = {
     if (error) return toast(error.message);
     if (!data.length) return modal(`<p>Add a supplier first.</p><div class="mt-4 text-right">${btn('OK', 'close')}</div>`);
     const c = 'mt-1 w-full rounded-lg border border-slate-300 p-2';
-    modal(`<h3 class="text-lg font-semibold">Add SKU</h3>
-      <label class="block mt-3 text-sm">SKU<input id="kSku" class="${c}"></label>
+    modal(`<h3 class="text-lg font-semibold">Add product (SKU)</h3>
+      <label class="block mt-3 text-sm">Product (SKU)<input id="kSku" class="${c}"></label>
       <label class="block mt-3 text-sm">Description<input id="kDesc" class="${c}"></label>
       <label class="block mt-3 text-sm">Supplier<select id="kSup" class="${c}">${data.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
       <label class="block mt-3 text-sm">Supplier part number (optional)<input id="kPn" class="${c}"></label>
@@ -2072,10 +2074,10 @@ const actions = {
       <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSku')}</div>`);
   },
   saveSku: async () => {
-    const sku = $('#kSku').value.trim(); if (!sku) return ($('#fErr').textContent = 'Enter the SKU.');
+    const sku = $('#kSku').value.trim(); if (!sku) return ($('#fErr').textContent = 'Enter the product (SKU).');
     const { error } = await sb.from('skus').insert({ sku, description: $('#kDesc').value.trim() || null, supplier_id: $('#kSup').value, supplier_part_number: $('#kPn').value.trim() || null });
-    if (error) return ($('#fErr').textContent = error.code === '23505' ? 'That SKU already exists.' : error.message);
-    closeModal(); toast('SKU added'); renderSkus();
+    if (error) return ($('#fErr').textContent = error.code === '23505' ? 'That product (SKU) already exists.' : error.message);
+    closeModal(); toast('Product (SKU) added'); renderSkus();
   },
   remind: async ({ id }) => {
     const { data: r, error } = await sb.from('requests').select('id,subject,message,status,party_id,due_on,party:parties(name),contact:party_contacts(id,name,email)').eq('id', id).single();
@@ -2236,9 +2238,10 @@ const actions = {
     closeModal(); toast('Supplier added'); route();
   },
   editSupplier: async ({ id }) => {
-    const r = await sb.from('parties').select('id,name,country,address_line,city,postal_code,website,notes,is_active').eq('id', id).single();
+    const [r, ct] = await Promise.all([sb.from('parties').select('id,name,country,address_line,city,postal_code,website,notes,is_active').eq('id', id).single(),
+      sb.from('party_contacts').select('id,name,email,phone,job_title').eq('party_id', id).eq('is_active', true).order('created_at', { ascending: false }).limit(1)]);
     if (r.error) return toast(r.error.message);
-    const c = r.data;
+    const c = r.data, k = (ct.data || [])[0];
     modal(`<h3 class="text-lg font-semibold">Edit supplier</h3>
       <label class="block mt-3 text-sm">Company name<input id="sName" value="${esc(c.name)}" class="${inp}"></label>
       <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">Country (2 letters)<input id="sCountry" maxlength="2" value="${esc(c.country || '')}" class="${inp} uppercase"></label>
@@ -2246,17 +2249,27 @@ const actions = {
       <label class="block mt-3 text-sm">Address<input id="sAddr" value="${esc(c.address_line || '')}" class="${inp}"></label>
       <div class="grid grid-cols-2 gap-x-4"><label class="block mt-3 text-sm">City<input id="sCity" value="${esc(c.city || '')}" class="${inp}"></label><label class="block mt-3 text-sm">Postal code<input id="sPost" value="${esc(c.postal_code || '')}" class="${inp}"></label></div>
       <label class="block mt-3 text-sm">Notes<textarea id="sNotes" rows="2" class="${inp}">${esc(c.notes || '')}</textarea></label>
+      <div class="mt-4 pt-3 border-t border-slate-200"><div class="text-sm font-medium">Contact</div><p class="text-xs text-slate-500">One contact per company. Requests and upload links go to this person.</p>
+      <div class="grid grid-cols-2 gap-x-4"><label class="block mt-2 text-sm">Full name<input id="cName" value="${esc(k?.name || '')}" class="${inp}"></label><label class="block mt-2 text-sm">Email<input id="cEmail" type="email" value="${esc(k?.email || '')}" class="${inp}"></label>
+      <label class="block mt-2 text-sm">Phone (optional)<input id="cPhone" value="${esc(k?.phone || '')}" class="${inp}"></label><label class="block mt-2 text-sm">Job title (optional)<input id="cTitle" value="${esc(k?.job_title || '')}" class="${inp}"></label></div></div>
       <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
       <div class="mt-3 flex flex-wrap justify-between gap-2"><div class="flex gap-2">${c.is_active ? btn('Deactivate', 'supplierActive', { id, on: '0' }, 'danger') : btn('Reactivate', 'supplierActive', { id, on: '1' }, 'ghost')}${isAdminUser() && c.is_active ? btn('Merge into another...', 'mergeSupplier', { id }, 'ghost') : ''}</div>
-      <div class="flex gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSupplierEdit', { id })}</div></div>`);
+      <div class="flex gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save', 'saveSupplierEdit', { id, cid: k?.id || '' })}</div></div>`);
   },
-  saveSupplierEdit: async ({ id }) => {
+  saveSupplierEdit: async ({ id, cid }) => {
     const name = $('#sName').value.trim(), c = $('#sCountry').value.trim().toUpperCase();
     if (!name) return ($('#fErr').textContent = 'Enter the company name.');
     if (c && !/^[A-Z]{2}$/.test(c)) return ($('#fErr').textContent = 'Country must be a 2-letter code, or leave it blank.');
     const v = (i) => $(i).value.trim() || null;
+    const cn = v('#cName'), ce = v('#cEmail');
+    if ((cn || ce) && !(cn && ce)) return ($('#fErr').textContent = 'A contact needs both a name and an email (or leave both blank).');
     const { error } = await sb.from('parties').update({ name, country: c || null, website: v('#sWeb'), address_line: v('#sAddr'), city: v('#sCity'), postal_code: v('#sPost'), notes: v('#sNotes') }).eq('id', id);
     if (error) return ($('#fErr').textContent = error.message);
+    if (cn) {
+      const row = { name: cn, email: ce, phone: v('#cPhone'), job_title: v('#cTitle') };
+      const ce2 = cid ? await sb.from('party_contacts').update(row).eq('id', cid) : await sb.from('party_contacts').insert({ party_id: id, ...row });
+      if (ce2.error) return ($('#fErr').textContent = ce2.error.message);
+    }
     closeModal(); toast('Supplier saved'); route();
   },
   supplierActive: async ({ id, on }) => {
@@ -2266,7 +2279,7 @@ const actions = {
     if (!act) {
       const k = await sb.from('skus').select('id', { count: 'exact', head: true }).eq('supplier_id', id).eq('status', 'active');
       const n = k.count || 0;
-      const note = await askNote(`Deactivate ${r.data.name}? ${n ? n + ' active SKU(s) still point to this supplier; to move them use Merge, or change them first. ' : ''}It will disappear from this list and stop being re-screened. Nothing is deleted. Why?`, true);
+      const note = await askNote(`Deactivate ${r.data.name}? ${n ? n + ' active product(s) (SKUs) still point to this supplier; to move them use Merge, or change them first. ' : ''}It will disappear from this list and stop being re-screened. Nothing is deleted. Why?`, true);
       if (note === null) return;
       const u = await sb.from('parties').update({ is_active: false, notes: ((await sb.from('parties').select('notes').eq('id', id).single()).data?.notes || '') + `\nDeactivated ${new Date().toISOString().slice(0, 10)}: ${note}` }).eq('id', id);
       if (u.error) return toast(u.error.message);
@@ -2282,7 +2295,7 @@ const actions = {
     const [a, b] = await Promise.all([sb.from('parties').select('id,name').eq('id', id).single(), sb.from('parties').select('id,name,country').contains('roles', ['supplier']).eq('is_active', true).neq('id', id).order('name')]);
     if (a.error || b.error) return toast((a.error || b.error).message);
     modal(`<h3 class="text-lg font-semibold">Merge "${esc(a.data.name)}" into another supplier</h3>
-      <p class="text-sm text-slate-600 mt-2">Everything attached to <b>${esc(a.data.name)}</b> moves to the supplier you choose: SKUs, contacts, documents and conflict minerals declarations, requests and cases. Then <b>${esc(a.data.name)}</b> is made inactive. Screening history stays on the old record. This cannot be undone with one click.</p>
+      <p class="text-sm text-slate-600 mt-2">Everything attached to <b>${esc(a.data.name)}</b> moves to the supplier you choose: products (SKUs), contacts, documents and conflict minerals declarations, requests and cases. Then <b>${esc(a.data.name)}</b> is made inactive. Screening history stays on the old record. This cannot be undone with one click.</p>
       <label class="block mt-3 text-sm">Keep this supplier<select id="mTo" class="${inp}"><option value="">Choose...</option>${b.data.map((x) => `<option value="${x.id}">${esc(x.name)}${x.country ? ' (' + esc(x.country) + ')' : ''}</option>`).join('')}</select></label>
       <label class="block mt-3 text-sm">Reason (required)<input id="mWhy" class="${inp}" placeholder="For example: duplicate entry"></label>
       <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
@@ -2295,7 +2308,7 @@ const actions = {
     const r = await sb.rpc('merge_suppliers', { p_from: id, p_into: to, p_note: why });
     if (r.error) return ($('#fErr').textContent = /merge_suppliers/.test(r.error.message) && /function|schema cache/i.test(r.error.message) ? 'Database part 13 has not been run yet.' : r.error.message);
     const m = r.data || {};
-    closeModal(); toast(`Merged: ${m.skus || 0} SKUs, ${m.contacts || 0} contacts, ${m.documents || 0} documents moved`); route();
+    closeModal(); toast(`Merged: ${m.skus || 0} products (SKUs), ${m.contacts || 0} contacts, ${m.documents || 0} documents moved`); route();
   },
   addContact: async ({ id, name }) => {
     const { data, error } = await sb.from('party_contacts').select('id,name,email,phone,job_title').eq('party_id', id).eq('is_active', true).order('created_at', { ascending: false }).limit(1);
