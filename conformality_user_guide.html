@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="version" content="1.9.1">
+<meta name="version" content="1.10.0">
 <title>Conformality User Guide</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="icon" href="./favicon.ico" sizes="48x48">
@@ -59,7 +59,7 @@
   <a href="#skus">SKUs</a>
   <a href="#requests">Document requests</a>
   <a href="#minerals">CMRT check</a>
-  <a href="#screening">Screening matches</a>
+  <a href="#screening">Screening</a>
   <a href="#trade">Orders, classification and trade rules</a>
   <a href="#review">Documents</a>
   <a href="#govdata">Government data</a>
@@ -73,7 +73,7 @@
 
 <main>
 <h1>Conformality User Guide</h1>
-<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.9.1 · Updated 28 Oct 2026 · Applies to app version 1.9.1 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
+<p style="color:var(--muted);font-size:.9rem;margin:0 0 12px">Guide version 1.10.0 · Updated 28 Oct 2026 · Applies to app version 1.10.0 (shown next to the name in the app's top bar) · <a href="./index.html" style="color:inherit">Open the app</a></p>
 <p class="lead">Conformality is our in-house tool for proving that we know who our suppliers and customers are, what we sell, and where it goes. It collects evidence, flags problems, records who decided what, and keeps the history so it can be shown to an auditor or customer.</p>
 
 <div class="warn"><b>Important.</b> This tool organizes work and records decisions. It does not give legal advice and it does not decide whether an export licence is required. When a result is unclear, or a match is confirmed, involve your compliance lead or legal counsel.</div>
@@ -105,18 +105,27 @@
 <h3>Finding your way around</h3>
 <table>
   <tr><th style="width:30%">Top menu</th><th>What is in it</th></tr>
-  <tr><td><b>Dashboard</b></td><td>What needs attention now. Filter by All, High, Medium or Low.</td></tr>
-  <tr><td><b>Review inbox</b></td><td>Everything waiting for a decision. Conflict minerals first: <b>Documents</b> (files that suppliers sent in), <b>Document requests</b> (ask suppliers for their conflict minerals forms) and <b>CMRT check</b>. Then, if party screening is on: <b>Ownership forms</b> (suppliers' lists of their owners) and <b>Screening matches</b> (restricted party screening). An amber number on a tab is how many items wait there.</td></tr>
+  <tr><td><b>Dashboard</b></td><td>An at-a-glance screen that fits on one page on a desktop. <b>To do</b> lists everything that needs a person, most urgent first; filter by All, High, Medium or Low, or click an area in <b>By area</b> (documents, requests, screening and so on). The <b>CMRT check</b> tile lists conflict minerals forms waiting to be read and suppliers with flagged smelters. Each tile scrolls on its own.</td></tr>
   <tr><td><b>Orders</b></td><td>Customer orders and their shipment checklist. <i>Trade compliance only.</i></td></tr>
-  <tr><td><b>Records</b> (drop-down)</td><td>The <b>Audit log</b> (the permanent record of who changed what), then, under the heading Trade compliance, <b>Customs records</b>.</td></tr>
   <tr><td><b>Configuration</b> (drop-down)</td><td>An amber number beside an item means that many things there need attention (99+ means 100 or more). The set-up information the other areas depend on: <b>Suppliers</b>, <b>Government data</b>, <b>Products</b> (the SKU list) and <b>Features</b>; then, under the heading Trade compliance, <b>Classifications</b>, <b>Customers</b> and <b>Rules</b>.</td></tr>
+  <tr><td><b>Records</b> (drop-down)</td><td>The <b>Audit log</b> (the permanent record of who changed what), then, under the heading Trade compliance, <b>Customs records</b>.</td></tr>
+</table>
+<h3>Where the old Review inbox went</h3>
+<p>There is no Review inbox any more. Each piece now lives with the party it belongs to, and the Dashboard tells you what is waiting.</p>
+<table>
+  <tr><th style="width:30%">It used to be</th><th>Now</th></tr>
+  <tr><td>Documents to review</td><td>The supplier's page, on <b>Documents &amp; requests</b> (a customer's papers are on the customer page). Items waiting appear on the Dashboard; <i>Open</i> takes you to the right tab.</td></tr>
+  <tr><td>Document requests</td><td>The supplier's page, <b>Documents &amp; requests</b>.</td></tr>
+  <tr><td>CMRT check</td><td>The <b>CMRT check</b> tile on the Dashboard to read a form and check its smelters; flagged smelters are decided on the supplier's <b>Smelters</b> tab.</td></tr>
+  <tr><td>Ownership forms</td><td>The supplier's <b>Screening</b> tab.</td></tr>
+  <tr><td>Screening matches</td><td>The <b>Screening</b> tab on the supplier's or customer's page. <b>Screen all parties</b> and each party's screening status are on the Suppliers and Customers lists.</td></tr>
 </table>
 <h3>Turning compliance areas on and off (Features)</h3>
 <p><b>Configuration &gt; Features</b> lets an admin switch two areas on or off. Conflict minerals is always on. Everyone can see the page; only an admin can change it.</p>
 <table>
   <tr><th style="width:30%">Feature</th><th>When it is off</th></tr>
   <tr><td><b>Trade compliance (EAR / ITAR)</b></td><td>Orders, Classifications, Customers and their end user statements, Rules, Customs records, and the tariff, export-control, destination and statement-wording rows under Government data are hidden. Their items disappear from the Dashboard and the bell, and new trade records cannot be created. Suppliers, document requests, CMRT checks, the smelter list and the Audit log are unaffected.</td></tr>
-  <tr><td><b>Restricted party screening and ownership reviews</b></td><td>Screening matches, Ownership forms, the screening list under Government data and the screening tile on supplier pages are hidden. It can only be turned off while trade compliance is off, because orders are screened.</td></tr>
+  <tr><td><b>Restricted party screening and ownership reviews</b></td><td>The Screening tab on supplier and customer pages (matches and ownership forms), the screening list under Government data and the screening tile on supplier pages are hidden. It can only be turned off while trade compliance is off, because orders are screened.</td></tr>
 </table>
 <p>Turning a feature off never deletes anything. Turn it back on and everything returns as it was. Each change is recorded in the Audit log. This needs database part 14 (included in the full database file).</p>
 <p>Every menu entry and most buttons have a small icon beside the label to make them quicker to spot. In the top right there are two round icons.</p>
@@ -130,7 +139,7 @@
 <ol>
   <li><b>Configuration &gt; Government data:</b> load the smelter list (RMAP) and the screening list.</li>
     <li><b>Configuration &gt; Suppliers and Products:</b> add suppliers, one contact each, and import your part numbers.</li>
-  <li><b>Review inbox &gt; Document requests:</b> ask each supplier for their conflict minerals form.</li>
+  <li><b>Supplier page &gt; Documents &amp; requests:</b> ask each supplier for their conflict minerals form.</li>
   <li><b>Configuration &gt; Classifications and Customers:</b> classify your products and add your customers.</li>
   <li><b>Dashboard:</b> work through whatever it lists.</li>
 </ol>
@@ -170,8 +179,8 @@
 <p>The <b>Data currency</b> table lives on <b>Configuration &gt; Government data</b>, not on the Dashboard. Government data and reviews go out of date, so the table shows, for each one, when it was last updated, when the next update is due, and a status: <span class="b g">Current</span>, <span class="b a">Due soon</span> or <span class="b r">Overdue</span>. It opens by itself when something needs attention. When anything is overdue, a small amber count appears beside <b>Government data</b> when you open the Configuration menu, and the Dashboard lists each overdue item as a work item.</p>
 <table>
   <tr><th style="width:32%">Item</th><th style="width:14%">Due every</th><th>How it is kept up to date</th></tr>
-  <tr><td>Screening lists (restricted parties)</td><td>about 2 weeks</td><td>Loaded from a file on Screening. The date comes from the last load.</td></tr>
-  <tr><td>Smelter list (RMAP)</td><td>90 days</td><td>Loaded from a file on Minerals.</td></tr>
+  <tr><td>Screening lists (restricted parties)</td><td>about 2 weeks</td><td>Loaded from a file on Government data. The date comes from the last load.</td></tr>
+  <tr><td>Smelter list (RMAP)</td><td>90 days</td><td>Loaded from a file on Government data.</td></tr>
   <tr><td>Tariff codes and programs</td><td>30 days</td><td>A person reviews the tariff schedule and notices, updates affected classifications, then presses <span class="btn">I checked this</span> and writes what was checked.</td></tr>
   <tr><td>Export control rules (Commerce)</td><td>90 days</td><td>A person reviews recent rule changes, then records the check.</td></tr>
   <tr><td>Conflict minerals form version</td><td>1 year</td><td>A person checks for a new CMRT version, then records the check.</td></tr>
@@ -229,7 +238,7 @@
   <li><b>Misspelled or wrong name:</b> click Edit and correct it.</li>
   <li><b>The same company entered twice:</b> an admin opens the wrong one, clicks Edit, then <b>Merge into another...</b>, picks the correct supplier and gives a reason. Its SKUs, contacts, documents, conflict minerals declarations, requests and cases move to the correct one, and the wrong one becomes inactive. Screening history stays on the old record so you can still show what was screened and when.</li>
   <li><b>A supplier you no longer use:</b> Edit, then Deactivate. Find it again under "Inactive suppliers" at the bottom of the page, where you can Reactivate it.</li>
-  <li>Merge is blocked if the wrong supplier has screening matches still waiting for a decision. Decide them on the Screening tab first. It needs database part 13.</li>
+  <li>Merge is blocked if the wrong supplier has screening matches still waiting for a decision. Decide them on the supplier's Screening tab first. It needs database part 13.</li>
 </ul>
 <h2 id="skus">Products (SKUs) <small>(Configuration menu)</small></h2>
 <div class="purpose"><b>Purpose</b>Our product catalogue. A SKU (stock keeping unit) is one sellable part number. Linking each SKU to its supplier lets us answer a customer's question "is part X conflict-minerals compliant?" by looking up the supplier's current form.</div>
@@ -241,7 +250,7 @@
 </ul>
 
 <!-- ============ REQUESTS ============ -->
-<h2 id="requests">Document requests <small>(Review inbox)</small></h2>
+<h2 id="requests">Document requests <small>(supplier page &gt; Documents &amp; requests)</small></h2>
 <div class="purpose"><b>Purpose</b>Tracks every document we have asked a supplier for, so nothing is forgotten and there is a record that we asked.</div>
 <div class="example"><b class="l">Example (made-up names)</b>You need Brightline's declaration for this year. You create a request, send the private link, and Brightline uploads the form without needing an account. Two weeks pass with no reply, so the request turns <i>Overdue</i> and appears on Today. You press Remind. Months later a customer asks "did you ever ask them?" and the request history is your proof.</div>
 <div class="flow"><span>Suppliers → Request documents</span><i>→</i><span>App creates a private upload link</span><i>→</i><span>You email the link</span><i>→</i><span>Supplier uploads</span><i>→</i><span>You review it</span></div>
@@ -253,7 +262,7 @@
 </ul>
 
 <!-- ============ MINERALS ============ -->
-<h2 id="minerals">CMRT check <small>(Review inbox)</small></h2>
+<h2 id="minerals">CMRT check <small>(Dashboard tile; flags on the supplier's Smelters tab)</small></h2>
 <div class="purpose"><b>Purpose</b>Reads each supplier's conflict minerals form and checks every smelter on it against the official conformant list, so you only have to look at the exceptions.</div>
 <div class="example"><b class="l">Example (made-up names)</b>Brightline's form lists 40 smelters. The app reads it and finds 38 on the conformant list, one that is not listed, and one whose name it cannot match. You only look at those two: ask Brightline about the unlisted smelter, or record your decision and why. Without the app you would check all 40 by hand.</div>
 
@@ -290,7 +299,7 @@
 <div class="tip">After a document is checked, go to <b>Review</b> to accept, accept with gaps, or reject the document itself. Checking smelters and accepting the document are two separate decisions.</div>
 
 <!-- ============ SCREENING ============ -->
-<h2 id="screening">Screening matches <small>(Review inbox; restricted party screening)</small></h2>
+<h2 id="screening">Screening <small>(supplier and customer pages &gt; Screening tab; restricted party screening)</small></h2>
 <div class="purpose"><b>Purpose</b>Checks the names of our suppliers and customers against government lists of sanctioned or restricted parties. Doing business with a listed party can lead to serious penalties, so we check regularly and keep proof that we did.</div>
 <div class="example"><b class="l">Example (made-up names)</b>You add a new customer, Meridian Trading Co. Screening finds a possible match with a listed company that has a similar name. Nothing is accused. You compare the country, address and what each company does, decide "not the same company" and write why. Six months later an auditor asks and you can show exactly what you looked at and when.</div>
 
@@ -447,7 +456,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <p>Items the app checks itself, always as Hold: an approved classification for every item and clear screening results.</p>
 
 <!-- ============ REVIEW ============ -->
-<h2 id="review">Documents <small>(Review inbox)</small></h2>
+<h2 id="review">Documents <small>(supplier page &gt; Documents &amp; requests)</small></h2>
 <div class="purpose"><b>Purpose</b>The inbox for everything suppliers send us. Nothing a supplier uploads counts until a person accepts it.</div>
 <div class="example"><b class="l">Example (made-up names)</b>Brightline uploads a conflict minerals form. It sits in Review until you open it, check it is the right file and year, and press Accept. Until then it does not count. That stops a wrong file, or a form from last year, from quietly passing as this year's declaration.</div>
 <h3>Documents to review</h3>
@@ -458,14 +467,14 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td><span class="b a">Accept with gaps</span></td><td>Usable but incomplete. A note records what is missing.</td></tr>
   <tr><td><span class="b r">Reject</span></td><td>Unusable. The supplier will need to send another.</td></tr>
 </table>
-<h3>Ownership forms <small>(Review inbox &gt; Ownership forms)</small></h3>
+<h3>Ownership forms <small>(supplier page &gt; Screening)</small></h3>
 <p>Suppliers can certify who owns them. Ownership matters because sanctions rules (for example OFAC's "50 percent rule") can apply to a company owned by listed parties even when the company itself is not listed. Review the named owners, then <span class="btn">Accept &amp; screen owners</span> (the owners are added and screened) or <span class="btn">Send back</span>.</p>
 
 <!-- ============ AUDIT ============ -->
 <h2 id="govdata">Government data <small>(Configuration menu)</small></h2>
 <p>One page for the outside information the app depends on: the restricted party list, the smelter list, tariff codes, export control rules, your destination country list, the end user statement wording and the form version. The table shows when each was last updated, when it is next due, and whether it is current.</p>
 <ul>
-  <li><b>Lists that come from a file</b> (screening list, smelter list): download the file, then use the <b>Load list</b> button next to that list on this page and pick it. The Review inbox pages only show when each list was last loaded.</li>
+  <li><b>Lists that come from a file</b> (screening list, smelter list): download the file, then use the <b>Load list</b> button next to that list on this page and pick it. The Dashboard and the supplier pages only show when each list was last loaded.</li>
   <li><b>Things a person reviews</b> (tariff codes, export control rules, country list, statement wording, form version): click <b>I checked this</b> and write what you checked. The note and date are saved permanently.</li>
   <li>The <b>Dashboard</b> shows a reminder when something is due or overdue.</li>
 </ul>
@@ -557,6 +566,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
 <h2 id="versions">Version history</h2>
 <table>
   <tr><th style="width:14%">Version</th><th style="width:16%">Date</th><th>Change</th></tr>
+  <tr><td>1.10.0</td><td>28 Oct 2026</td><td>Applies to app 1.10.0. The Review inbox is gone. Documents, requests, smelters, ownership forms and screening matches are on the supplier page (a new <b>Screening</b> tab; customers get one too); the CMRT check is a Dashboard tile; Screen all parties and screening status are on the Suppliers and Customers lists. The Dashboard is a set of tiles that fits the screen on a desktop and each tile scrolls. Records moved to the right of Configuration.</td></tr>
   <tr><td>1.9.1</td><td>28 Oct 2026</td><td>Applies to app 1.9.1. The count on Review inbox &gt; Screening matches now shows only the open matches that tab lists. It previously counted every open case, including ones from other areas, so it could show a number with nothing to act on.</td></tr>
   <tr><td>1.9.0</td><td>28 Oct 2026</td><td>Applies to app 1.9.0 and database part 14. New <b>Configuration &gt; Features</b>: an admin can turn trade compliance (EAR/ITAR) and party screening off, leaving conflict minerals in place. Menus now list conflict minerals first and trade compliance after it under a "Trade compliance" heading; the Review inbox tabs and Orders moved to match.</td></tr>
   <tr><td>1.8.6</td><td>28 Oct 2026</td><td>Applies to app 1.8.6. Customs records can be searched (title, file name, order), filtered by type, order (or "not on an order") and keep-until (within 90 days, passed, or later), and sorted by clicking any column heading.</td></tr>
@@ -583,7 +593,7 @@ MLN-1234,EAR,7A994,9031.80.8085,US,supplier_stated,Per supplier classification l
   <tr><td>1.1.0</td><td>22 Oct 2026</td><td>Adds end user statements (online signing or upload), the order file (checklist, licence determination, government-contract flags, download), shipment-check levels and the Rules tab (renamed from Destinations), new document types, and database part 10. Documents the starting assumptions.</td></tr>
   <tr><td>1.0.0</td><td>16 Oct 2026</td><td>First versioned release. Covers the app through the trade compliance and screening speed updates (database parts 1–9). The app, portal and this guide are versioned separately; each increases with every revision.</td></tr>
 </table>
-<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.9.1</p>
+<p style="color:var(--muted);font-size:.9rem;margin-top:24px">Conformality user guide v1.10.0</p>
 </main>
 </div>
 </body>
