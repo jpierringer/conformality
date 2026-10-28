@@ -43,6 +43,7 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.8.1  The Data currency panel is off the Dashboard (it lives on Configuration > Government data). The Configuration drop-down shows a count pill on Government data when lists or reviews are overdue.
 // 1.8.0  Ownership forms are their own Review inbox item. Customer page (click a name under Configuration > Customers): status tiles, Next step banner and tabs.
 // 1.7.2  The old Trade Compliance page is gone: Orders, Classifications, Customers, Customs records and Rules are separate pages with their own titles (no tab strip).
 // 1.7.1  Loading the screening list and the RMAP smelter list now happens on Configuration > Government data (the review pages show status only).
@@ -69,7 +70,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -168,7 +169,9 @@ function popMenu(key, selector, html, width) {
   m.innerHTML = html; document.body.appendChild(m);
 }
 // ---- bell: blocked orders, overdue items and escalations (everyone's, whatever the role) ------------------
-let workCache = null;   // { at, rows } from v_open_work
+let workCache = null;   // { at, rows, cur } from v_open_work and v_data_currency
+const overdueData = () => ((workCache && workCache.cur) || []).filter((r) => r.status === 'overdue').length;
+const menuCount = (v) => v === 'govdata' ? overdueData() : 0;
 const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 function bellGroups(rows) {
   const t = todayStr(), g = { blocked: [], overdue: [], esc: [] };
@@ -198,8 +201,8 @@ function paintBell() {
 }
 async function refreshBell(force) {
   if (!sb || (!force && workCache && Date.now() - workCache.at < 60000)) return paintBell();
-  const r = await sb.from('v_open_work').select('*');
-  if (!r.error) workCache = { at: Date.now(), rows: r.data };
+  const [r, c] = await Promise.all([sb.from('v_open_work').select('*'), sb.from('v_data_currency').select('code,status')]);
+  if (!r.error) workCache = { at: Date.now(), rows: r.data, cur: c.error ? (workCache && workCache.cur) || [] : c.data };
   paintBell();
 }
 function shell(inner) {
@@ -239,7 +242,7 @@ async function renderToday() {
   const { data, error } = wk;
   if (error) return fail(error);
   const cur = cu.error ? null : cu.data;   // null = database part 11 not installed yet
-  workCache = { at: Date.now(), rows: data };
+  workCache = { at: Date.now(), rows: data, cur: cur || [] };
   data.sort((a, b) => ORDER[a.severity] - ORDER[b.severity] || (a.due_on || '9').localeCompare(b.due_on || '9'));
   const n = (s) => data.filter((x) => x.severity === s).length;
   const SEV = { high: 'High', medium: 'Medium', low: 'Low' };
@@ -257,9 +260,9 @@ async function renderToday() {
   if (dashFilter) {
     const items = data.filter((x) => x.severity === dashFilter);
     body = `<div class="flex items-center gap-3 mb-3 text-sm"><span class="text-slate-600">Showing <b>${SEV[dashFilter]}</b> items only.</span>${btn('Show all', 'dashFilter', { s: dashFilter }, 'ghost')}</div>`
-      + sect(dashFilter === 'high' ? 'Urgent' : SEV[dashFilter] + ' priority', items.length, TONE[dashFilter], list(items, 'Nothing here.')) + currencyPanel(cur);
+      + sect(dashFilter === 'high' ? 'Urgent' : SEV[dashFilter] + ' priority', items.length, TONE[dashFilter], list(items, 'Nothing here.')) ;
   } else {
-    body = sect('Urgent', high.length, high.length ? 'red' : 'green', list(high, 'Nothing is urgent right now.')) + currencyPanel(cur)
+    body = sect('Urgent', high.length, high.length ? 'red' : 'green', list(high, 'Nothing is urgent right now.'))
       + sect('Other items', rest.length, 'gray', list(rest, 'Nothing else needs attention.'));
   }
   const allOn = !dashFilter, allCard = `<button data-a="dashAll" aria-pressed="${allOn}" title="Show every item" class="text-left rounded-xl bg-white border px-4 py-3 transition ${allOn ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">All</span><span class="text-3xl font-semibold text-slate-900">${data.length}</span></div></button>`;
@@ -1918,7 +1921,7 @@ const actions = {
     m.id = 'navmenu'; m.dataset.g = d.g; m.setAttribute('role', 'menu');
     m.style.cssText = `position:fixed;top:${Math.round(r.bottom + 4)}px;left:${Math.round(Math.min(r.left, window.innerWidth - 220))}px;z-index:60;min-width:12rem`;
     m.className = 'rounded-xl bg-white border border-slate-200 shadow-lg p-1';
-    m.innerHTML = g.items.map(([v, label, ic, t]) => `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}${label}</button>`).join('');
+    m.innerHTML = g.items.map(([v, label, ic, t]) => { const n = menuCount(v); return `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}<span class="flex-1">${label}</span>${n ? `<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="${n} overdue">${n}</span>` : ''}</button>`; }).join('');
     document.body.appendChild(m);
   },
   signout: async () => { await sb.auth.signOut(); },
