@@ -43,6 +43,8 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.9.0  Feature flags (Configuration > Features, database part 14): trade compliance (EAR/ITAR) and party screening can be turned off; conflict minerals is always on.
+//        Menus now list conflict minerals first and trade compliance after it, under a "Trade compliance" heading.
 // 1.8.6  Customs records: search, filter by type, order and keep-until, and sort by clicking any column heading.
 // 1.8.5  Count pill on the Configuration menu button (total of its items). Pills cap at 99+ (title keeps the real number).
 // 1.8.4  Count pills on the Review inbox tabs (Documents, Ownership forms, Screening matches, Document requests) and a total on the Review inbox menu item.
@@ -75,7 +77,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.8.6';
+const APP_VERSION = '1.9.0';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -161,13 +163,41 @@ function askNote(title, required) {
 }
 
 // ---- shell -------------------------------------------------------------------
-const NAV = [
+// Conflict minerals topics come first in every menu; trade compliance (EAR/ITAR) topics follow under a heading.
+// Feature flags (Configuration > Features) remove the trade or screening items; see buildNav().
+let FEAT = { trade: true, screening: true };
+const SEP = ['--', 'Trade compliance'];
+const NAV_ALL = [
   { id: 'today', label: 'Dashboard', icon: 'dashboard', v: 'today' },
-  { id: 'orders', label: 'Orders', icon: 'package', v: 'trade', t: 'orders' },
-  { id: 'inbox', label: 'Review inbox', icon: 'inbox', v: 'review', views: ['review', 'ownership', 'screening', 'requests', 'minerals'] },
-  { label: 'Records', icon: 'scroll', items: [['trade', 'Customs records', 'filetext', 'records'], ['audit', 'Audit log', 'scroll']] },
-  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['skus', 'Products', 'tag'], ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['govdata', 'Government data', 'landmark'], ['trade', 'Rules', 'sliders', 'dest']] }
+  { id: 'inbox', label: 'Review inbox', icon: 'inbox', v: 'review', views: ['review', 'requests', 'minerals', 'ownership', 'screening'] },
+  { id: 'orders', label: 'Orders', icon: 'package', v: 'trade', t: 'orders', trade: true },
+  { label: 'Records', icon: 'scroll', items: [['audit', 'Audit log', 'scroll'], SEP, ['trade', 'Customs records', 'filetext', 'records']] },
+  { label: 'Configuration', icon: 'sliders', items: [['suppliers', 'Suppliers', 'building'], ['govdata', 'Government data', 'landmark'], ['skus', 'Products', 'tag'], ['features', 'Features', 'sliders'], SEP, ['trade', 'Classifications', 'filecheck', 'class'], ['trade', 'Customers', 'users', 'parties'], ['trade', 'Rules', 'sliders', 'dest']] }
 ];
+const isTradeView = (v) => v === 'trade' || v === 'customer';
+const isScreenView = (v) => v === 'screening' || v === 'ownership';
+const viewAllowed = (v) => !(isTradeView(v) && !FEAT.trade) && !(isScreenView(v) && !FEAT.screening);
+function buildNav() {
+  return NAV_ALL.filter((n) => !(n.trade && !FEAT.trade)).map((n) => {
+    if (n.views) return { ...n, views: n.views.filter(viewAllowed) };
+    if (!n.items) return n;
+    const items = n.items.filter(([v]) => v === '--' || viewAllowed(v)).filter((it, i, arr) => it[0] !== '--' || (i > 0 && i < arr.length - 1 && arr[i + 1][0] !== '--'));
+    return { ...n, items };
+  });
+}
+let NAV = buildNav();
+async function loadFeatures() {
+  const r = await sb.from('app_settings').select('key,value').in('key', ['feature_trade_compliance', 'feature_party_screening']);
+  const on = (k) => { const row = (r.data || []).find((x) => x.key === k); return row ? row.value !== false && row.value !== 'false' : true; };
+  FEAT = { trade: r.error ? true : on('feature_trade_compliance'), screening: r.error ? true : on('feature_party_screening') };
+  if (FEAT.trade) FEAT.screening = true;
+  NAV = buildNav();
+}
+// Data-currency rows that belong to a feature that is off are left out (the list loader and the screening list follow party screening).
+const TRADE_CODES = ['hts', 'ccl', 'destinations', 'eus_wording'];
+const curOn = (r) => !(TRADE_CODES.includes(r.code) && !FEAT.trade) && !(r.code === 'csl' && !FEAT.screening);
+const curRank = (r) => (TRADE_CODES.includes(r.code) ? 2 : r.code === 'csl' ? 1 : 0);
+const curSort = (rows) => rows.filter(curOn).sort((a, b) => curRank(a) - curRank(b) || (a.sort_order || 0) - (b.sort_order || 0));
 const itemOn = (v, t) => v === 'suppliers' ? (view === 'suppliers' || view === 'supplier') : v === 'trade' ? ((view === 'trade' && (!t || tradeTab === t)) || (view === 'customer' && t === 'parties')) : view === v;
 const navOn = (n) => n.items ? n.items.some(([v, , , t]) => itemOn(v, t)) : n.views ? n.views.includes(view) : itemOn(n.v, n.t);
 function closeNavMenu() { const m = document.getElementById('navmenu'); if (m) m.remove(); }
@@ -232,14 +262,15 @@ function paintBell() {
 async function refreshBell(force) {
   if (!sb || (!force && workCache && Date.now() - workCache.at < 60000)) return paintBell();
   const [r, c] = await Promise.all([sb.from('v_open_work').select('*'), sb.from('v_data_currency').select('code,status')]);
-  if (!r.error) workCache = { at: Date.now(), rows: r.data, cur: c.error ? (workCache && workCache.cur) || [] : c.data };
+  if (!r.error) workCache = { at: Date.now(), rows: r.data, cur: c.error ? (workCache && workCache.cur) || [] : c.data.filter(curOn) };
   paintBell();
 }
 function shell(inner) {
   closeNavMenu();
   if (['review', 'ownership', 'screening', 'requests', 'minerals'].includes(view)) {
+    if (!viewAllowed(view)) return route();
     const pill = (v, l, ic) => `<button data-a="nav" data-v="${v}" class="inline-flex items-center gap-1.5 px-3 py-1 text-sm rounded-md ${view === v ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-600'}">${ico(ic)}${l}<span data-pillfor="${v}">${pillHtml(inboxCount(v))}</span></button>`;
-    inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('ownership', 'Ownership forms', 'users')}${pill('screening', 'Screening matches', 'shield')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'CMRT check', 'search')}</div></div>` + inner;
+    inner = `<div class="flex flex-wrap items-center gap-3 mb-4"><h1 class="text-xl font-semibold">Review inbox</h1><div class="inline-flex flex-wrap rounded-lg bg-slate-200 p-0.5">${pill('review', 'Documents', 'filecheck')}${pill('requests', 'Document requests', 'inbox')}${pill('minerals', 'CMRT check', 'search')}${FEAT.screening ? pill('ownership', 'Ownership forms', 'users') + pill('screening', 'Screening matches', 'shield') : ''}</div></div>` + inner;
   }
   const cls = (on) => on ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-200';
   const group = (n, gi) => `<button data-a="menu" data-g="${gi}" aria-haspopup="true" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap shrink-0 ${cls(navOn(n))}">${ico(n.icon)}${n.label}${n.label === 'Configuration' ? `<span data-pillfor="g${gi}">${pillHtml(groupTotal(n))}</span>` : ''} <span class="text-xs opacity-70">&#9662;</span></button>`;
@@ -271,7 +302,7 @@ async function renderToday() {
   const [wk, cu] = await Promise.all([sb.from('v_open_work').select('*'), sb.from('v_data_currency').select('*').order('sort_order')]);
   const { data, error } = wk;
   if (error) return fail(error);
-  const cur = cu.error ? null : cu.data;   // null = database part 11 not installed yet
+  const cur = cu.error ? null : curSort(cu.data);   // null = database part 11 not installed yet
   workCache = { at: Date.now(), rows: data, cur: cur || [] };
   data.sort((a, b) => ORDER[a.severity] - ORDER[b.severity] || (a.due_on || '9').localeCompare(b.due_on || '9'));
   const n = (s) => data.filter((x) => x.severity === s).length;
@@ -343,7 +374,7 @@ async function renderGovData() {
   const [cu, rm, cs] = await Promise.all([sb.from('v_data_currency').select('*').order('sort_order'),
     sb.from('reference_list_loads').select('loaded_at,row_count').eq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1),
     sb.from('reference_list_loads').select('loaded_at,row_count').neq('list_code', 'RMAP').eq('status', 'complete').order('loaded_at', { ascending: false }).limit(1)]);
-  const rows = cu.error ? null : cu.data;
+  const rows = cu.error ? null : curSort(cu.data);
   const lastOf = (r) => (r.data && r.data[0]) || null;
   const loadedTxt = (l) => l ? ` Last loaded ${fmt(l.loaded_at)} · ${(l.row_count || 0).toLocaleString()} entries.` : ' Not loaded yet.';
   const picker = (id, l) => `<label class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium bg-slate-900 text-white hover:bg-slate-700 cursor-pointer">${ico('upload')}${l ? 'Load newer list' : 'Load list'}<input id="${id}" type="file" accept="${id === 'cslFile' ? '.csv' : '.xlsx,.xls,.csv'}" class="hidden"></label>`;
@@ -353,14 +384,34 @@ async function renderGovData() {
     ${currencyPanel(rows, true)}
     <h3 id="listLoaders" class="font-medium mt-6 mb-2">Where to update each one</h3>
     <div class="grid gap-3 xl:grid-cols-2">
-      ${where('Restricted party screening list', 'Download the Consolidated Screening List CSV from trade.gov and load the file here. Loading it screens every active party.' + loadedTxt(lastOf(cs)), picker('cslFile', lastOf(cs)))}
       ${where('Smelter list (RMAP)', 'Download the latest smelter reference list from the Responsible Minerals Initiative and load the file here.' + loadedTxt(lastOf(rm)), picker('rmapFile', lastOf(rm)))}
-      ${where('Destination country rules', 'Your embargoed, restricted and watch countries. Review with counsel.', btn('Open rules', 'goTrade', { t: 'dest' }))}
-      ${where('End user statement wording', 'The text customers sign. Counsel should approve any change.', btn('Open rules', 'goTrade', { t: 'dest' }))}
-      ${where('Shipment check levels', 'Which order checks hold a shipment, warn, or are only tracked.', btn('Open rules', 'goTrade', { t: 'dest' }))}
+      ${!FEAT.screening ? '' : where('Restricted party screening list', 'Download the Consolidated Screening List CSV from trade.gov and load the file here. Loading it screens every active party.' + loadedTxt(lastOf(cs)), picker('cslFile', lastOf(cs)))}
+      ${!FEAT.trade ? '' : where('Destination country rules', 'Your embargoed, restricted and watch countries. Review with counsel.', btn('Open rules', 'goTrade', { t: 'dest' }))}
+      ${!FEAT.trade ? '' : where('End user statement wording', 'The text customers sign. Counsel should approve any change.', btn('Open rules', 'goTrade', { t: 'dest' }))}
+      ${!FEAT.trade ? '' : where('Shipment check levels', 'Which order checks hold a shipment, warn, or are only tracked.', btn('Open rules', 'goTrade', { t: 'dest' }))}
     </div>`);
   $('#rmapFile').onchange = (e) => { importRmap(e.target.files[0]); e.target.value = ''; };
-  $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
+  if ($('#cslFile')) $('#cslFile').onchange = (e) => { importCsl(e.target.files[0]); e.target.value = ''; };
+}
+
+// ---- features (feature flags) --------------------------------------------------------------
+const FEATURES = [
+  { key: 'feature_trade_compliance', id: 'trade', name: 'Trade compliance (EAR / ITAR)', hides: 'Orders, Classifications, Customers and their end user statements, Rules (destination countries and check levels), Customs records, and the tariff and export-control rows under Government data.', keeps: 'Suppliers, document requests, CMRT checks and the smelter list (conflict minerals), and the Audit log.' },
+  { key: 'feature_party_screening', id: 'screening', name: 'Restricted party screening and ownership reviews', hides: 'Screening matches, Ownership forms, the screening list under Government data, and the screening tile on supplier pages.', keeps: 'Everything else. This must stay on while trade compliance is on, because orders are screened.' }
+];
+async function renderFeatures() {
+  loading(); await loadFeatures();
+  const admin = profile?.role === 'admin';
+  const row = (f) => {
+    const on = FEAT[f.id], locked = f.id === 'screening' && FEAT.trade;
+    return `<div class="rounded-xl bg-white border border-slate-200 p-4 flex flex-wrap items-start gap-3"><div class="flex-1 min-w-[16rem]"><div class="flex items-center gap-2"><span class="font-medium">${f.name}</span>${badge(on ? 'On' : 'Off', on ? 'green' : 'gray')}</div>
+      <p class="text-sm text-slate-600 mt-1"><b>When off, hidden:</b> ${f.hides}</p><p class="text-sm text-slate-600 mt-1"><b>Always available:</b> ${f.keeps}</p>
+      ${locked ? '<p class="text-xs text-slate-500 mt-1">Turn trade compliance off first if you want to turn this off.</p>' : ''}</div>
+      <div class="shrink-0">${admin && !locked ? btn(on ? 'Turn off' : 'Turn on', 'featureAsk', { k: f.key, on: on ? '0' : '1' }, on ? 'danger' : 'primary') : ''}</div></div>`;
+  };
+  shell(`<h2 class="text-xl font-semibold mb-1">Features</h2>
+    <p class="text-sm text-slate-500 mb-4">Conflict minerals compliance is always on. Turn on only the compliance areas your company needs. Turning something off hides it and stops new records being created; nothing is deleted, and turning it back on restores everything. Every change is recorded in the Audit log.${admin ? '' : ' Only an admin can change these settings.'}</p>
+    <div class="grid gap-3 max-w-4xl"><div class="rounded-xl bg-white border border-slate-200 p-4"><div class="flex items-center gap-2"><span class="font-medium">Conflict minerals (suppliers, requests, CMRT, smelters)</span>${badge('Always on', 'green')}</div></div>${FEATURES.map(row).join('')}</div>`);
 }
 
 async function renderSuppliers() {
@@ -396,16 +447,16 @@ function supNext(c) {
   const waiting = docs.filter((d) => d.status === 'received').length, flagged = decls.filter((d) => declInfo(d).open > 0).reduce((n, d) => n + declInfo(d).open, 0);
   const overdue = reqs.filter((r) => ['sent', 'reminded'].includes(r.status) && r.due_on && r.due_on < todayStr());
   const left = daysUntil(st?.valid_until);
-  if (c.own && c.own.length) return { tone: 'amber', title: `Review ${c.own.length} ownership form${c.own.length > 1 ? 's' : ''}`, text: 'The supplier listed its owners. Accepting screens each owner.', act: btn('Review ownership forms', 'nav', { v: 'ownership' }) };
+  if (FEAT.screening && c.own && c.own.length) return { tone: 'amber', title: `Review ${c.own.length} ownership form${c.own.length > 1 ? 's' : ''}`, text: 'The supplier listed its owners. Accepting screens each owner.', act: btn('Review ownership forms', 'nav', { v: 'ownership' }) };
   if (waiting) return { tone: 'amber', title: `Review ${waiting} document${waiting > 1 ? 's' : ''} waiting`, text: 'The supplier sent something that needs a decision.', act: btn('Review documents', 'supTab', { v: 'docs' }) };
   if (flagged) return { tone: 'red', title: `Review ${flagged} flagged smelter${flagged > 1 ? 's' : ''}`, text: 'Decide whether to accept each one, ask the supplier, or mark it as not used.', act: btn('Review smelters', 'supTab', { v: 'smelters' }) };
-  if (ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'nav', { v: 'screening' }) };
+  if (FEAT.screening && ps && ps.open_hits > 0) return { tone: 'red', title: 'Resolve the screening matches', text: 'This supplier may match a restricted party list.', act: btn('Review matches', 'nav', { v: 'screening' }) };
   if (!contacts.length) return { tone: 'amber', title: 'Add a contact', text: 'Requests go to a named person.', act: btn('Manage contact', 'addContact', { id, name }) };
   if (!st?.cmrt_status || st.cmrt_expired) return { tone: 'red', title: 'Request a conflict minerals form', text: st?.cmrt_status ? 'The last form has expired.' : 'No form on file yet.', act: btn('Request documents', 'reqDocs', { id, name }) };
   if (overdue.length) return { tone: 'amber', title: `${overdue.length} request${overdue.length > 1 ? 's are' : ' is'} overdue`, text: 'Send a reminder.', act: btn('See requests', 'supTab', { v: 'docs' }) };
   if (left !== null && left <= 30) return { tone: 'amber', title: 'Ask for a renewed conflict minerals form', text: `The current form expires in ${left} day${left === 1 ? '' : 's'}.`, act: btn('Request documents', 'reqDocs', { id, name }) };
-  if (ps && !ps.last_screened_at) return { tone: 'amber', title: 'Screen this supplier', text: 'Never screened against the restricted party lists.', act: btn('Screen now', 'screenNow', { id }) };
-  return { tone: 'green', title: 'Nothing needed right now', text: 'Documents, smelters and screening are all in good standing.', act: '' };
+  if (FEAT.screening && ps && !ps.last_screened_at) return { tone: 'amber', title: 'Screen this supplier', text: 'Never screened against the restricted party lists.', act: btn('Screen now', 'screenNow', { id }) };
+  return { tone: 'green', title: 'Nothing needed right now', text: FEAT.screening ? 'Documents, smelters and screening are all in good standing.' : 'Documents and smelters are in good standing.', act: '' };
 }
 async function renderSupplier() {
   loading();
@@ -464,7 +515,7 @@ async function renderSupplier() {
   shell(`<div class="text-xs text-slate-500 mb-2">Configuration › ${btn('Suppliers', 'nav', { v: 'suppliers' }, 'ghost').replace('px-3 py-1.5', 'px-2 py-0.5')}</div>
     <div class="flex flex-wrap items-center gap-3"><h1 class="text-2xl font-semibold">${esc(name)}</h1>${next.tone === 'green' ? badge('In good standing', 'green') : badge('Action needed', next.tone === 'red' ? 'red' : 'amber')}${c.party.is_active === false ? badge('Inactive', 'gray') : ''}<span class="text-sm text-slate-500">${esc(c.party.country || '')} · ${c.skus.filter((k) => k.status === 'active').length} active products</span>
       <div class="ml-auto flex flex-wrap gap-2">${btn('Edit', 'editSupplier', { id }, 'ghost')}${btn('Manage contact', 'addContact', { id, name }, 'ghost')}${btn('Request documents', 'reqDocs', { id, name })}</div></div>
-    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${scrTile}${reqTile}</div>
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">${cmrtTile}${smTile}${FEAT.screening ? scrTile : ''}${reqTile}</div>
     ${banner}
     <div class="mt-5 mb-4 flex flex-wrap gap-1 border-b border-slate-200">${tabs}</div>${body}`);
 }
@@ -1964,6 +2015,22 @@ const actions = {
   },
   recSort: ({ k }) => { recF.dir = recF.sort === k ? -recF.dir : (k === 'date' || k === 'keep' ? -1 : 1); recF.sort = k; renderTrade(); },
   recClear: () => { recF = { q: '', type: '', order: '', keep: '', sort: recF.sort, dir: recF.dir }; renderTrade(); },
+  featureAsk: ({ k, on }) => {
+    const f = FEATURES.find((x) => x.key === k); if (!f) return;
+    modal(`<h3 class="text-lg font-semibold">${on === '1' ? 'Turn on' : 'Turn off'} ${f.name}?</h3>
+      <p class="text-sm text-slate-600 mt-2">${on === '1' ? 'The hidden screens and to-do items come back exactly as they were.' : `<b>Hidden:</b> ${f.hides}<br><br>Nothing is deleted. New records in this area cannot be created until it is turned back on.`}</p>
+      ${on === '1' && f.id === 'trade' ? '<p class="text-sm text-slate-600 mt-2">Party screening will be turned on as well.</p>' : ''}
+      <div class="mt-4 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn(on === '1' ? 'Turn on' : 'Turn off', 'featureSet', { k, on }, on === '1' ? 'primary' : 'danger')}</div>`);
+  },
+  featureSet: async ({ k, on }) => {
+    const value = on === '1', keys = value && k === 'feature_trade_compliance' ? ['feature_party_screening', k] : [k];
+    for (const key of keys) {
+      const r = await sb.from('app_settings').update({ value }).eq('key', key).select('key');
+      if (r.error) { closeModal(); return toast(r.error.message); }
+      if (!r.data || !r.data.length) { closeModal(); return toast('Run database part 14 first (feature flags), then try again.'); }
+    }
+    closeModal(); await loadFeatures(); workCache = null; toast('Saved.'); route(); refreshBell(true);
+  },
   dashFilter: ({ s: sev }) => { dashFilter = dashFilter === sev ? null : sev; renderToday(); },
   menu: (d, ev) => {
     const open = document.getElementById('navmenu'), same = open && open.dataset.g === d.g; closeNavMenu(); if (same) return;
@@ -1972,7 +2039,7 @@ const actions = {
     m.id = 'navmenu'; m.dataset.g = d.g; m.setAttribute('role', 'menu');
     m.style.cssText = `position:fixed;top:${Math.round(r.bottom + 4)}px;left:${Math.round(Math.min(r.left, window.innerWidth - 220))}px;z-index:60;min-width:12rem`;
     m.className = 'rounded-xl bg-white border border-slate-200 shadow-lg p-1';
-    m.innerHTML = g.items.map(([v, label, ic, t]) => { const n = menuCount(v, t); return `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}<span class="flex-1">${label}</span>${pillHtml(n)}</button>`; }).join('');
+    m.innerHTML = g.items.map(([v, label, ic, t]) => { if (v === '--') return `<div class="px-3 pt-2 pb-1 mt-1 border-t border-slate-100 text-[11px] font-semibold uppercase tracking-wide text-slate-400">${esc(label)}</div>`; const n = menuCount(v, t); return `<button data-a="nav" data-v="${v}" ${t ? `data-t="${t}"` : ''} role="menuitem" class="flex items-center gap-2 w-full text-left px-3 py-2 text-sm rounded-lg ${itemOn(v, t) ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'}">${ico(ic)}<span class="flex-1">${label}</span>${pillHtml(n)}</button>`; }).join('');
     document.body.appendChild(m);
   },
   signout: async () => { await sb.auth.signOut(); },
@@ -2199,7 +2266,7 @@ document.addEventListener('change', (e) => {
 });
 
 // ---- boot & auth ---------------------------------------------------------------
-function route() { ({ ownership: renderOwnership, customer: renderCustomer, today: renderToday, suppliers: renderSuppliers, supplier: renderSupplier, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
+function route() { if (!viewAllowed(view)) { view = 'today'; tradeTab = 'orders'; } ({ features: renderFeatures, ownership: renderOwnership, customer: renderCustomer, today: renderToday, suppliers: renderSuppliers, supplier: renderSupplier, skus: renderSkus, requests: renderRequests, minerals: renderMinerals, screening: renderScreening, trade: renderTrade, review: renderReview, audit: renderAudit, govdata: renderGovData })[view](); }
 
 function loginScreen(msg = '') {
   $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="lf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
@@ -2228,6 +2295,7 @@ async function afterAuth(session) {
     $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><div class="max-w-sm text-center"><h1 class="text-xl font-semibold">Waiting for approval</h1><p class="text-slate-500 mt-2">Your account exists but an admin has not activated it yet.</p><div class="mt-4">${btn('Sign out', 'signout', {}, 'ghost')}</div></div></div>`;
     return;
   }
+  await loadFeatures();
   route();
 }
 
