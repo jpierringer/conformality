@@ -43,6 +43,7 @@ main div:has(>table){overflow-x:auto}
 
 <script>
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
+// 1.8.6  Customs records: search, filter by type, order and keep-until, and sort by clicking any column heading.
 // 1.8.5  Count pill on the Configuration menu button (total of its items). Pills cap at 99+ (title keeps the real number).
 // 1.8.4  Count pills on the Review inbox tabs (Documents, Ownership forms, Screening matches, Document requests) and a total on the Review inbox menu item.
 // 1.8.3  Count pills in the Configuration drop-down for Suppliers, Classifications, Customers, Government data and Rules (overdue or needs-action items only).
@@ -74,7 +75,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.8.5';
+const APP_VERSION = '1.8.6';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -1349,16 +1350,35 @@ async function saveParty(id) {
 }
 
 // ---- customs and export records ------------------------------------------------------------
+let recF = { q: '', type: '', order: '', keep: '', sort: 'date', dir: -1 };
 async function tradeRecords() {
-  const { data, error } = await sb.from('documents').select('id,title,doc_type,issued_on,retain_until,file_name,storage_path,transaction_id,transaction:transactions(reference),type:document_types(name)').in('doc_type', CUSTOMS_TYPES).order('created_at', { ascending: false }).limit(300);
+  const { data, error } = await sb.from('documents').select('id,title,doc_type,issued_on,retain_until,file_name,storage_path,transaction_id,transaction:transactions(reference),type:document_types(name)').in('doc_type', CUSTOMS_TYPES).order('created_at', { ascending: false }).limit(2000);
   if (error) throw error;
   const oids = [...new Set(data.filter((d) => d.transaction_id).map((d) => d.transaction_id))], keep = new Map();
   if (oids.length) { const r = await sb.from('v_order_retention').select('transaction_id,keep_until').in('transaction_id', oids); (r.data || []).forEach((x) => keep.set(x.transaction_id, x.keep_until)); }
   const until = (d) => { const k = keep.get(d.transaction_id); return k && (!d.retain_until || k > d.retain_until) ? k : d.retain_until; };
+  const f = recF, today = todayIso(), soon = new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10);
+  const tName = (d) => d.type?.name || d.doc_type, oRef = (d) => d.transaction?.reference || '';
+  const types = [...new Map(data.map((d) => [d.doc_type, tName(d)])).entries()].sort((x, y) => x[1].localeCompare(y[1]));
+  const orders = [...new Set(data.map(oRef).filter(Boolean))].sort();
+  const key = { title: (d) => (d.title || '').toLowerCase(), type: (d) => tName(d).toLowerCase(), order: (d) => oRef(d).toLowerCase(), date: (d) => d.issued_on || '', keep: (d) => until(d) || '' }[f.sort] || ((d) => d.issued_on || '');
+  const vis = data.filter((d) => (!f.type || d.doc_type === f.type) && (!f.order || (f.order === '__none' ? !d.transaction_id : oRef(d) === f.order)) && (!f.q || [d.title, d.file_name, tName(d), oRef(d)].join(' ').toLowerCase().includes(f.q.toLowerCase())) && (!f.keep || (f.keep === 'expired' ? until(d) && until(d) < today : f.keep === 'soon' ? until(d) && until(d) >= today && until(d) <= soon : !until(d) || until(d) > soon)))
+    .sort((x, y) => { const kx = key(x), ky = key(y); return (kx < ky ? -1 : kx > ky ? 1 : 0) * f.dir; });
+  const sel = (id, opts, cur) => `<select id="${id}" class="rounded-lg border border-slate-300 p-2 text-sm">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
+  const th = (k, l) => `<th class="p-3"><button type="button" data-a="recSort" data-k="${k}" class="inline-flex items-center gap-1 font-medium hover:text-slate-900">${l}<span class="text-xs ${f.sort === k ? 'text-slate-900' : 'text-slate-300'}">${f.sort === k ? (f.dir > 0 ? '&#9650;' : '&#9660;') : '&#9660;'}</span></button></th>`;
+  const filtered = f.q || f.type || f.order || f.keep;
   return {
     html: `<div class="flex items-center mb-3"><p class="text-sm text-slate-500">Entry summaries, invoices, purchase orders, certificates, export filings and licences. Files cannot be changed or deleted. For records attached to an order, the keep-until date follows the order's ship date. Documents attached on an order also appear here.</p><div class="ml-auto shrink-0">${btn('+ Upload record', 'uploadRecord')}</div></div>
-    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr><th class="p-3">Record</th><th class="p-3">Type</th><th class="p-3">Order</th><th class="p-3">Date</th><th class="p-3">Keep until</th><th class="p-3"></th></tr></thead>
-    <tbody class="divide-y divide-slate-100">${data.map((d) => `<tr><td class="p-3 font-medium">${esc(d.title)}</td><td class="p-3">${esc(d.type?.name || d.doc_type)}</td><td class="p-3">${esc(d.transaction?.reference || '')}</td><td class="p-3">${fmt(d.issued_on)}</td><td class="p-3">${fmt(until(d))}</td><td class="p-3 text-right">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || '<tr><td colspan="6" class="p-8 text-center text-slate-500">No records yet.</td></tr>'}</tbody></table></div>`
+    <div class="flex flex-wrap items-center gap-2 mb-3"><input id="rcQ" value="${esc(f.q)}" placeholder="Search title, file name, order" class="rounded-lg border border-slate-300 p-2 text-sm w-64">
+      ${sel('rcT', [['', 'All types'], ...types], f.type)}${sel('rcO', [['', 'All orders'], ['__none', 'Not on an order'], ...orders.map((o) => [o, o])], f.order)}${sel('rcK', [['', 'Any keep-until'], ['soon', 'Keep-until within 90 days'], ['expired', 'Keep-until passed'], ['later', 'Keep longer than 90 days']], f.keep)}
+      ${filtered ? btn('Clear filters', 'recClear', {}, 'ghost') : ''}<span class="text-xs text-slate-500 ml-auto">${vis.length} of ${data.length} record${data.length === 1 ? '' : 's'}</span></div>
+    <div class="rounded-xl bg-white border border-slate-200 overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b border-slate-200"><tr>${th('title', 'Record')}${th('type', 'Type')}${th('order', 'Order')}${th('date', 'Date')}${th('keep', 'Keep until')}<th class="p-3"></th></tr></thead>
+    <tbody class="divide-y divide-slate-100">${vis.map((d) => `<tr><td class="p-3 font-medium">${esc(d.title)}</td><td class="p-3">${esc(tName(d))}</td><td class="p-3">${esc(oRef(d))}</td><td class="p-3">${fmt(d.issued_on)}</td><td class="p-3">${fmt(until(d))}</td><td class="p-3 text-right">${btn('Open file', 'file', { path: d.storage_path }, 'ghost')}</td></tr>`).join('') || `<tr><td colspan="6" class="p-8 text-center text-slate-500">${data.length ? 'No records match these filters.' : 'No records yet.'}</td></tr>`}</tbody></table></div>`,
+    bind: () => {
+      $('#rcQ').oninput = (e) => { recF.q = e.target.value; clearTimeout(recF.t); recF.t = setTimeout(renderTrade, 300); };
+      $('#rcT').onchange = (e) => { recF.type = e.target.value; renderTrade(); }; $('#rcO').onchange = (e) => { recF.order = e.target.value; renderTrade(); }; $('#rcK').onchange = (e) => { recF.keep = e.target.value; renderTrade(); };
+      if (recF.q) { const q = $('#rcQ'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    }
   };
 }
 let uploadCtx = null;
@@ -1942,6 +1962,8 @@ const actions = {
     if (ROUTE[d.rt]) return actions.nav({ v: ROUTE[d.rt] });
     actions.nav({ v: 'today' });
   },
+  recSort: ({ k }) => { recF.dir = recF.sort === k ? -recF.dir : (k === 'date' || k === 'keep' ? -1 : 1); recF.sort = k; renderTrade(); },
+  recClear: () => { recF = { q: '', type: '', order: '', keep: '', sort: recF.sort, dir: recF.dir }; renderTrade(); },
   dashFilter: ({ s: sev }) => { dashFilter = dashFilter === sev ? null : sev; renderToday(); },
   menu: (d, ev) => {
     const open = document.getElementById('navmenu'), same = open && open.dataset.g === d.g; closeNavMenu(); if (same) return;
