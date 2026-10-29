@@ -45,6 +45,7 @@ main div:has(>table){overflow-x:auto}
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
 // 1.11.0 Records shows just "Audit log" when trade compliance is off. Suppliers: Import and Export (CSV) and exception filters. Every page opens with a line saying what is expected.
 //        Every dialog has an X in its corner. Government data: the "Where to update each one" section is gone; Load list is a button on the table row.
+// 1.11.4 Dashboard on a phone: each item wraps (pill and text on top, action button on its own line) so nothing scrolls sideways.
 // 1.11.3 Features page: the Trade compliance "When off, hidden" text now lists Products (SKUs).
 // 1.11.2 Products (SKUs) is a Trade compliance page (menu, supplier tab and counts hide when it is off); wording is "Product (SKU)" everywhere.
 // 1.11.1 Suppliers: no Open button (the name opens it), Manage contact is merged into Edit, active SKU count only shows when Trade compliance is on.
@@ -86,7 +87,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.11.3';
+const APP_VERSION = '1.11.4';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -323,10 +324,10 @@ async function renderToday() {
   const byArea = data.filter((x) => !dashArea || areaOf(x) === dashArea);
   const n = (s) => byArea.filter((x) => x.severity === s).length;
   const row = (w) => `
-      <div class="px-3 py-2.5 flex items-start gap-3">
+      <div class="px-3 py-2.5 flex flex-wrap sm:flex-nowrap items-start gap-x-3 gap-y-2">
         <div class="pt-0.5">${badge(SEV[w.severity], TONE[w.severity])}</div>
-        <div class="flex-1 min-w-0"><div class="font-medium truncate">${esc(w.title)}</div><div class="text-sm text-slate-500">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
-        ${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'govdata' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) && w.party_id ? btn('Review matches', 'goParty', { id: w.party_id, tab: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : w.party_id && ROUTE_TAB[w.ref_table] ? btn('Open', 'goParty', { id: w.party_id, tab: ROUTE_TAB[w.ref_table] }, 'ghost') : ''}
+        <div class="flex-1 min-w-0 basis-0 grow sm:basis-auto"><div class="font-medium sm:truncate break-words">${esc(w.title)}</div><div class="text-sm text-slate-500 break-words">${esc(w.detail)}${w.due_on ? ' · due ' + fmt(w.due_on) : ''}</div></div>
+        <div class="basis-full sm:basis-auto sm:shrink-0 text-right sm:text-left">${w.kind === 'eus_expiring' ? btn('Send new link', 'goEus', { id: w.party_id, name: w.title.replace(/^[^:]*: /, '') }) : w.kind === 'data_stale' ? btn('Record check', 'dataCheck', { code: w.ref_id }) : w.ref_table === 'transactions' ? btn('Open', 'goTrade', { t: 'orders', id: w.ref_id }) : (w.ref_table === 'skus' || w.ref_table === 'classifications') ? btn('Open', 'goTrade', { t: 'class' }) : w.kind === 'screening_due' ? btn('Screen now', 'screenNow', { id: w.party_id }) : w.kind === 'lists_stale' ? btn('Load list', 'nav', { v: 'govdata' }) : w.ref_table === 'cases' && /^screening match/.test(w.detail) && w.party_id ? btn('Review matches', 'goParty', { id: w.party_id, tab: 'screening' }) : w.ref_table === 'cases' ? btn('Resolve', 'resolveCase', { id: w.ref_id }) : w.party_id && ROUTE_TAB[w.ref_table] ? btn('Open', 'goParty', { id: w.party_id, tab: ROUTE_TAB[w.ref_table] }, 'ghost') : ''}</div>
       </div>`;
   const card = (sev, tone) => { const on = dashFilter === sev; return `<button data-a="dashFilter" data-s="${sev}" aria-pressed="${on}" title="${on ? 'Click to show everything' : 'Show only ' + SEV[sev] + ' items'}" class="text-left rounded-xl bg-white border px-3 py-2 transition ${on ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">${SEV[sev]}</span><span class="text-2xl font-semibold ${tone}">${n(sev)}</span></div></button>`; };
   const allOn = !dashFilter, allCard = `<button data-a="dashAll" aria-pressed="${allOn}" title="Show every item" class="text-left rounded-xl bg-white border px-3 py-2 transition ${allOn ? 'border-slate-900 ring-2 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}"><div class="flex items-baseline justify-between gap-3"><span class="text-sm font-medium text-slate-600">All</span><span class="text-2xl font-semibold text-slate-900">${byArea.length}</span></div></button>`;
