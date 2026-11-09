@@ -45,6 +45,8 @@ main div:has(>table){overflow-x:auto}
 // ---- VERSION: increase with every revision (also update the user guide's "applies to") ----
 // 1.11.0 Records shows just "Audit log" when trade compliance is off. Suppliers: Import and Export (CSV) and exception filters. Every page opens with a line saying what is expected.
 //        Every dialog has an X in its corner. Government data: the "Where to update each one" section is gone; Load list is a button on the table row.
+// 1.12.1 Account menu: Change password (current password checked first, then updateUser).
+// 1.12.0 Forgot password: sign-in screen has a reset by one-time code (resetPasswordForEmail, then verifyOtp, then updateUser) so filtered links are not needed. Supabase email template must contain {{ .Token }}.
 // 1.11.5 Deactivated suppliers no longer appear in the Dashboard CMRT tile, the CMRT check page or the Dashboard to-do list (database part 14 updated).
 // 1.11.4 Dashboard on a phone: each item wraps (pill and text on top, action button on its own line) so nothing scrolls sideways.
 // 1.11.3 Features page: the Trade compliance "When off, hidden" text now lists Products (SKUs).
@@ -88,7 +90,7 @@ main div:has(>table){overflow-x:auto}
 //        government-contract flags (FAR Part 12 / TAA / BAA), shipment-check levels (Trade > Rules), order file download.
 //        Fixed: date-only values no longer show a day early in US time zones.
 // 1.0.0  First versioned release. Added the user guide link.
-const APP_VERSION = '1.11.5';
+const APP_VERSION = '1.12.1';
 // ---- CONFIG: paste your Supabase project values -------------------------------
 const CFG = {
   url: 'https://sjwarllnehssyphoormc.supabase.co',                    // https://xxxx.supabase.co
@@ -2138,7 +2140,7 @@ const actions = {
   dashAll: () => { dashFilter = null; dashArea = null; renderToday(); },
   dashArea: ({ k }) => { dashArea = dashArea === k ? null : k; renderToday(); },
   bell: () => { popMenu('bell', '#bellBtn', bellHtml(), 380); refreshBell(true); },
-  userMenu: () => popMenu('user', '#userBtn', `<div class="px-4 py-3 border-b border-slate-200"><div class="font-semibold">${esc(profile?.full_name || user?.email || '')}</div><div class="text-xs text-slate-500 break-all">${esc(user?.email || '')}</div><div class="text-xs text-slate-500">Role: ${esc(profile?.role || '')}</div></div><button data-a="signout" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">${ico('logout')}Sign out</button>`, 260),
+  userMenu: () => popMenu('user', '#userBtn', `<div class="px-4 py-3 border-b border-slate-200"><div class="font-semibold">${esc(profile?.full_name || user?.email || '')}</div><div class="text-xs text-slate-500 break-all">${esc(user?.email || '')}</div><div class="text-xs text-slate-500">Role: ${esc(profile?.role || '')}</div></div><button data-a="chgPw" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">${ico('user')}Change password</button><button data-a="signout" class="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm hover:bg-slate-50">${ico('logout')}Sign out</button>`, 260),
   bellGo: (d) => {
     closeNavMenu();
     if (d.rt === 'transactions') return actions.goTrade({ t: 'orders', id: d.id });
@@ -2179,6 +2181,26 @@ const actions = {
     document.body.appendChild(m);
   },
   signout: async () => { await sb.auth.signOut(); },
+  chgPw: () => {
+    closeNavMenu();
+    modal(`<h3 class="text-lg font-semibold">Change password</h3><p class="text-sm text-slate-500 mt-1">Signed in as ${esc(user?.email || '')}.</p>
+      <label class="block mt-3 text-sm">Current password<input id="pwOld" type="password" autocomplete="current-password" class="${inp}"></label>
+      <label class="block mt-3 text-sm">New password<input id="pwNew" type="password" autocomplete="new-password" class="${inp}"></label>
+      <label class="block mt-3 text-sm">Repeat new password<input id="pwNew2" type="password" autocomplete="new-password" class="${inp}"></label>
+      <p id="fErr" class="text-xs text-red-600 mt-2 min-h-4"></p>
+      <div class="mt-3 flex justify-end gap-2">${btn('Cancel', 'close', {}, 'ghost')}${btn('Save password', 'pwSave')}</div>`);
+  },
+  pwSave: async () => {
+    const err = (m) => ($('#fErr').textContent = m), o = $('#pwOld').value, a = $('#pwNew').value;
+    if (!o || !a) return err('Fill in all three boxes.');
+    if (a !== $('#pwNew2').value) return err('The two new passwords do not match.');
+    if (a === o) return err('The new password is the same as the current one.');
+    const chk = await sb.auth.signInWithPassword({ email: user.email, password: o });
+    if (chk.error) return err('The current password is not right.');
+    const { error } = await sb.auth.updateUser({ password: a });
+    if (error) return err(error.message);
+    closeModal(); toast('Password changed');
+  },
   mOk: () => askNote.ok(), mCancel: () => askNote.cancel(),
   modalX: () => { if (askNote.open) askNote.cancel(); else closeModal(); },
   close: () => closeModal(),
@@ -2422,7 +2444,9 @@ function loginScreen(msg = '') {
     <input id="em" type="email" required autocomplete="username" placeholder="Email" class="mt-6 w-full rounded-lg border border-slate-300 p-2.5">
     <input id="pw" type="password" required autocomplete="current-password" placeholder="Password" class="mt-3 w-full rounded-lg border border-slate-300 p-2.5">
     <p class="text-sm text-red-600 mt-2 min-h-[1.25rem]">${esc(msg)}</p>
-    <button class="mt-2 w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium hover:bg-slate-700">Sign in</button></form></div>`;
+    <button class="mt-2 w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium hover:bg-slate-700">Sign in</button>
+    <button type="button" id="fpw" class="mt-4 w-full text-sm text-slate-500 hover:text-slate-900 underline">Forgot your password?</button></form></div>`;
+  $('#fpw').onclick = () => resetScreen('email', $('#em').value);
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
     const { error } = await sb.auth.signInWithPassword({ email: $('#em').value, password: $('#pw').value });
@@ -2430,7 +2454,44 @@ function loginScreen(msg = '') {
   };
 }
 
+// Password reset by one-time code (no link to click, so mail filters that rewrite or block links do not break it):
+// 1) email the code, 2) verifyOtp with the code (this signs the person in), 3) updateUser sets the new password.
+let resetting = false;
+function resetScreen(step, email = '', msg = '', note = '') {
+  resetting = true;
+  const head = { email: ['Reset your password', 'Enter your work email and we will send you a one-time code.'], code: ['Enter your code', `We sent a code to ${esc(email)}. It is valid for a short time and works once.`], pw: ['Choose a new password', 'Pick a new password for your account.'] }[step];
+  const fields = { email: `<input id="rem" type="email" required autocomplete="username" value="${esc(email)}" placeholder="Email" class="mt-5 w-full rounded-lg border border-slate-300 p-2.5">`,
+    code: `<input id="rcode" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" placeholder="Code from the email" class="mt-5 w-full rounded-lg border border-slate-300 p-2.5 tracking-widest text-center text-lg">`,
+    pw: `<input id="rpw" type="password" required autocomplete="new-password" placeholder="New password" class="mt-5 w-full rounded-lg border border-slate-300 p-2.5"><input id="rpw2" type="password" required autocomplete="new-password" placeholder="Repeat new password" class="mt-3 w-full rounded-lg border border-slate-300 p-2.5">` }[step];
+  $('#app').innerHTML = `<div class="min-h-screen grid place-items-center p-4"><form id="rf" class="w-full max-w-sm rounded-2xl bg-white border border-slate-200 shadow-sm p-8">
+    <h1 class="text-2xl font-semibold tracking-tight">${head[0]}</h1><p class="text-sm text-slate-500 mt-1">${head[1]}</p>${note ? `<p class="text-sm text-emerald-700 mt-2">${esc(note)}</p>` : ''}${fields}
+    <p id="rerr" class="text-sm text-red-600 mt-2 min-h-[1.25rem]">${esc(msg)}</p>
+    <button class="mt-2 w-full rounded-lg bg-slate-900 text-white py-2.5 font-medium hover:bg-slate-700">${{ email: 'Send code', code: 'Verify code', pw: 'Save password' }[step]}</button>
+    ${step === 'pw' ? '' : '<button type="button" id="rback" class="mt-4 w-full text-sm text-slate-500 hover:text-slate-900 underline">Back to sign in</button>'}</form></div>`;
+  if ($('#rback')) $('#rback').onclick = () => { resetting = false; loginScreen(); };
+  $('#rf').onsubmit = async (e) => {
+    e.preventDefault();
+    if (step === 'email') {
+      const em = $('#rem').value.trim();
+      const { error } = await sb.auth.resetPasswordForEmail(em);
+      return error ? resetScreen('email', em, error.message) : resetScreen('code', em, '', 'If that email has an account, a code is on its way.');
+    }
+    if (step === 'code') {
+      const { error } = await sb.auth.verifyOtp({ email, token: $('#rcode').value.trim(), type: 'recovery' });
+      return error ? resetScreen('code', email, error.message.includes('expired') || error.message.includes('invalid') ? 'That code is wrong or has expired. Go back and ask for a new one.' : error.message) : resetScreen('pw', email);
+    }
+    const a = $('#rpw').value;
+    if (a !== $('#rpw2').value) return ($('#rerr').textContent = 'The two passwords do not match.');
+    const { error } = await sb.auth.updateUser({ password: a });
+    if (error) return ($('#rerr').textContent = error.message);
+    resetting = false;
+    const { data } = await sb.auth.getSession();
+    afterAuth(data.session);
+  };
+}
+
 async function afterAuth(session) {
+  if (resetting) return;
   if (!session) return loginScreen();
   user = session.user;
   const { data, error } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
